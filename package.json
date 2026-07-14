@@ -2,7 +2,7 @@
   "name": "system-monitor",
   "displayName": "System Monitor — CPU RAM GPU Disk",
   "description": "Live CPU (per-core), RAM, multi-GPU, multi-disk and network charts in the sidebar — Task Manager style. Windows, macOS, Linux, WSL.",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "publisher": "demontego",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -12,12 +12,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/demontego/system-monitor"
+    "url": "https://github.com/Demontego/system-monitor"
   },
   "bugs": {
-    "url": "https://github.com/demontego/system-monitor/issues"
+    "url": "https://github.com/Demontego/system-monitor/issues"
   },
-  "homepage": "https://github.com/demontego/system-monitor#readme",
+  "homepage": "https://github.com/Demontego/system-monitor#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -74,6 +74,14 @@
       {
         "command": "systemMonitor.openPanel",
         "title": "System Monitor: Open Charts Panel"
+      },
+      {
+        "command": "systemMonitor.attachProcess",
+        "title": "System Monitor: Attach Process"
+      },
+      {
+        "command": "systemMonitor.detachProcess",
+        "title": "System Monitor: Detach Process"
       }
     ],
     "configuration": {
@@ -105,6 +113,27 @@
           "enum": ["total", "logical"],
           "default": "total",
           "description": "CPU charts: overall utilization or per logical processor (Task Manager style)"
+        },
+        "systemMonitor.timeWindow": {
+          "type": "string",
+          "enum": ["1m", "5m", "30m"],
+          "default": "5m",
+          "description": "Chart history window: last 1 / 5 / 30 minutes"
+        },
+        "systemMonitor.showProcess": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show process attach control in the status bar"
+        },
+        "systemMonitor.autoAttachDebug": {
+          "type": "boolean",
+          "default": true,
+          "description": "Try to auto-attach when a debug session starts"
+        },
+        "systemMonitor.detachOnDebugEnd": {
+          "type": "boolean",
+          "default": false,
+          "description": "Detach process monitor when debug session ends"
         }
       }
     }

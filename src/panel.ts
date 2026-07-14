@@ -5,19 +5,28 @@ import type { Snapshot } from "./monitor";
 export const VIEW_ID = "systemMonitor.panel";
 
 export type CpuChartsMode = "total" | "logical";
+export type TimeWindow = "1m" | "5m" | "30m";
 
 export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   private view?: vscode.WebviewView;
   private last?: Snapshot;
   private cpuMode: CpuChartsMode = "total";
+  private timeWindow: TimeWindow = "5m";
 
   constructor(
     private readonly history: History,
     private readonly onCpuMode: (mode: CpuChartsMode) => void,
+    private readonly onTimeWindow: (win: TimeWindow) => void,
+    private readonly actions?: { onAttach?: () => void; onDetach?: () => void },
   ) {}
 
   setCpuMode(mode: CpuChartsMode) {
     this.cpuMode = mode;
+    this.flush();
+  }
+
+  setTimeWindow(win: TimeWindow) {
+    this.timeWindow = win;
     this.flush();
   }
 
@@ -31,6 +40,16 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
         this.onCpuMode(msg.mode);
         this.flush();
       }
+      if (
+        msg?.type === "timeWindow" &&
+        (msg.win === "1m" || msg.win === "5m" || msg.win === "30m")
+      ) {
+        this.timeWindow = msg.win;
+        this.onTimeWindow(msg.win);
+        this.flush();
+      }
+      if (msg?.type === "attach") this.actions?.onAttach?.();
+      if (msg?.type === "detach") this.actions?.onDetach?.();
     });
     this.flush();
   }
@@ -47,6 +66,7 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       points: this.history.snapshot(),
       live: this.last,
       cpuMode: this.cpuMode,
+      timeWindow: this.timeWindow,
     });
   }
 
@@ -91,12 +111,44 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       var(--vscode-sideBar-background, var(--vscode-editor-background));
   }
   .hero { margin-bottom: 14px; }
+  .brand-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
   .brand {
     font-size: 11px;
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--muted);
-    margin-bottom: 6px;
+  }
+  .gpu-block {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+  }
+  .gpu-block:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+  .gpu-head {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 0 6px 6px;
+    font-size: 11px;
+  }
+  .gpu-head b {
+    font-family: var(--mono);
+    font-variant-numeric: tabular-nums;
+  }
+  canvas.temp {
+    width: 100%;
+    height: 48px;
+    display: block;
   }
   .hero-row {
     display: flex;
@@ -146,6 +198,19 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   .card.gpu { --tone: var(--accent3); }
   .card.disk { --tone: var(--accent5); }
   .card.net { --tone: var(--accent4); }
+  .card.proc { --tone: var(--vscode-charts-purple, #b180d7); }
+  .card.proc.hidden { display: none; }
+  .linkish {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--vscode-textLink-foreground, var(--accent));
+    font: inherit;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+  }
   .head {
     display: flex;
     justify-content: space-between;
@@ -256,7 +321,14 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
 </head>
 <body>
   <div class="hero">
-    <div class="brand">System Monitor</div>
+    <div class="brand-row">
+      <div class="brand">System Monitor</div>
+      <div class="seg" id="winSeg">
+        <button type="button" data-win="1m">1m</button>
+        <button type="button" data-win="5m" class="on">5m</button>
+        <button type="button" data-win="30m">30m</button>
+      </div>
+    </div>
     <div class="hero-row">
       <div class="hero-stat" id="hCpu">—<small>cpu</small></div>
       <div class="hero-stat" id="hMem">—<small>ram</small></div>
@@ -304,11 +376,26 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   <section class="card gpu">
     <div class="head">
       <span class="label">GPU</span>
-      <div class="seg wrap" id="gpuSeg"></div>
       <span class="val" id="gpuVal">—</span>
     </div>
-    <div class="dev-meta" id="gpuMeta"></div>
-    <div class="plot"><canvas class="main" id="gpu"></canvas></div>
+    <div id="gpuList"></div>
+  </section>
+
+  <section class="card proc" id="procCard">
+    <div class="head">
+      <span class="label">Process</span>
+      <div class="seg">
+        <button type="button" id="attachBtn">Attach</button>
+        <button type="button" id="detachBtn">Detach</button>
+      </div>
+      <span class="val" id="procVal">—</span>
+    </div>
+    <div class="dev-meta" id="procMeta">Not attached — track CPU / RAM of a debuggee or any PID</div>
+    <div class="plot" id="procPlot"><canvas class="main" id="proc"></canvas></div>
+    <div class="legend">
+      <span><i style="background:var(--vscode-charts-purple, #b180d7)"></i>cpu %</span>
+      <span><i style="background:var(--accent2)"></i>mem (scaled)</span>
+    </div>
   </section>
 
   <section class="card net">
@@ -324,11 +411,46 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
 const vscodeApi = acquireVsCodeApi();
 const dpr = () => window.devicePixelRatio || 1;
 let cpuMode = 'total';
+let timeWindow = '5m';
 /** @type {{cols:number,rows:number,gap:number,n:number,cssW:number,cssH:number}|null} */
 let logicalLayout = null;
 let hoverCore = -1;
 let selectedDisk = 0;
-let selectedGpu = 0;
+let gpuReady = 0;
+
+function windowMinutes(win) {
+  if (win === '1m') return 1;
+  if (win === '30m') return 30;
+  return 5;
+}
+
+function filterWindow(pts, win) {
+  const cut = Date.now() - windowMinutes(win) * 60 * 1000;
+  return (pts || []).filter(p => p.t >= cut);
+}
+
+function setWinUI(win) {
+  timeWindow = win;
+  document.querySelectorAll('#winSeg button').forEach(b => {
+    b.classList.toggle('on', b.getAttribute('data-win') === win);
+  });
+}
+
+document.getElementById('winSeg').addEventListener('click', e => {
+  const btn = e.target.closest('button[data-win]');
+  if (!btn) return;
+  const win = btn.getAttribute('data-win');
+  setWinUI(win);
+  vscodeApi.postMessage({ type: 'timeWindow', win });
+  if (lastMsg) paint(lastMsg);
+});
+
+document.getElementById('attachBtn').addEventListener('click', () => {
+  vscodeApi.postMessage({ type: 'attach' });
+});
+document.getElementById('detachBtn').addEventListener('click', () => {
+  vscodeApi.postMessage({ type: 'detach' });
+});
 
 function cssVar(name, fallback) {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -491,6 +613,56 @@ function dualChart(canvas, a, b, maxY, ca, cb) {
   ctx.strokeStyle = ca; ctx.lineWidth = 2 * dpr(); strokeSmooth(ctx, aPts);
   fillSmooth(ctx, bPts, w, h, cb);
   ctx.strokeStyle = cb; strokeSmooth(ctx, bPts);
+}
+
+/** util 0–100 + temp with auto °C scale on same canvas */
+function utilTempChart(canvas, util, temp, colorU, colorT) {
+  const { w, h } = size(canvas);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  const pad = 6 * dpr();
+  drawGrid(ctx, w, h, pad, 3);
+  if (!util.length) return;
+  const uPts = toXY(ema(util, 0.38), 100, w, h, pad);
+  fillSmooth(ctx, uPts, w, h, colorU);
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.strokeStyle = colorU; ctx.lineWidth = 2 * dpr(); strokeSmooth(ctx, uPts);
+  const temps = temp.map(v => (v == null ? null : v));
+  if (temps.some(v => v != null)) {
+    const filled = temps.map((v, i) => {
+      if (v != null) return v;
+      let L = i - 1, R = i + 1;
+      while (L >= 0 && temps[L] == null) L--;
+      while (R < temps.length && temps[R] == null) R++;
+      if (L >= 0 && R < temps.length) return (temps[L] + temps[R]) / 2;
+      if (L >= 0) return temps[L];
+      if (R < temps.length) return temps[R];
+      return 0;
+    });
+    const maxT = Math.max(80, ...filled) * 1.05;
+    const tPts = toXY(ema(filled, 0.35), maxT, w, h, pad);
+    ctx.strokeStyle = colorT; ctx.lineWidth = 1.6 * dpr(); strokeSmooth(ctx, tPts);
+  }
+}
+
+function ensureGpuCards(n) {
+  const list = document.getElementById('gpuList');
+  if (gpuReady === n && list.children.length === n) return;
+  gpuReady = n;
+  list.innerHTML = '';
+  for (let i = 0; i < n; i++) {
+    const el = document.createElement('div');
+    el.className = 'gpu-block';
+    el.innerHTML =
+      '<div class="gpu-head"><span id="gpuName' + i + '">GPU ' + i + '</span>' +
+      '<b id="gpuLive' + i + '">—</b></div>' +
+      '<div class="plot"><canvas class="main" id="gpuC' + i + '"></canvas></div>' +
+      '<div class="legend">' +
+      '<span><i style="background:var(--accent3)"></i>util %</span>' +
+      '<span><i style="background:var(--accent4)"></i>temp °C</span>' +
+      '</div>';
+    list.appendChild(el);
+  }
 }
 
 function fmtRate(k) {
@@ -691,9 +863,10 @@ logicalCanvas.addEventListener('mouseleave', () => {
 });
 
 function paint(msg) {
-  const pts = msg.points || [];
   const live = msg.live;
   if (msg.cpuMode) setModeUI(msg.cpuMode);
+  if (msg.timeWindow) setWinUI(msg.timeWindow);
+  const pts = filterWindow(msg.points || [], timeWindow);
 
   const accent = cssVar('--accent', '#4ea1ff');
   const a2 = cssVar('--accent2', '#73c991');
@@ -703,13 +876,16 @@ function paint(msg) {
 
   if (live) {
     document.getElementById('meta').textContent =
-      live.platform + (live.gpuLabel ? ' · ' + live.gpuLabel : '');
+      live.platform + (live.gpuLabel ? ' · ' + live.gpuLabel : '') +
+      ' · window ' + timeWindow;
     document.getElementById('hCpu').innerHTML = live.cpuTotal + '%<small>cpu</small>';
     document.getElementById('hMem').innerHTML = live.memPct.toFixed(0) + '%<small>ram</small>';
     document.getElementById('hDisk').innerHTML =
       fmtRate(live.diskReadKBs + live.diskWriteKBs) + '/s<small>disk</small>';
-    document.getElementById('hGpu').innerHTML =
-      (live.gpuPct == null ? '—' : live.gpuPct + '%') + '<small>gpu</small>';
+    const gpuHero =
+      (live.gpuPct == null ? '—' : live.gpuPct + '%') +
+      (live.gpuTemp != null ? ' ' + live.gpuTemp + '°' : '');
+    document.getElementById('hGpu').innerHTML = gpuHero + '<small>gpu</small>';
 
     document.getElementById('cpuVal').textContent =
       live.cpuTotal + '% · ' + (live.cpuCores || []).length + ' logical';
@@ -741,26 +917,20 @@ function paint(msg) {
     }
 
     const gpus = live.gpus || [];
-    if (selectedGpu >= gpus.length) selectedGpu = 0;
-    syncSeg(
-      'gpuSeg',
-      gpus.map((g, i) => ({
-        id: g.id,
-        label: gpus.length === 1 ? 'GPU' : 'GPU ' + i,
-        title: g.name,
-      })),
-      selectedGpu,
-      (i) => { selectedGpu = i; if (lastMsg) paint(lastMsg); },
-    );
-    const gpu = gpus[selectedGpu];
-    if (gpu) {
-      document.getElementById('gpuMeta').textContent = gpu.name;
-      document.getElementById('gpuVal').textContent =
-        gpu.util == null ? 'n/a' : gpu.util + '%';
-    } else {
-      document.getElementById('gpuMeta').textContent = '';
-      document.getElementById('gpuVal').textContent = 'n/a';
-    }
+    document.getElementById('gpuVal').textContent =
+      gpus.length + ' device' + (gpus.length === 1 ? '' : 's') +
+      (live.gpuTemp != null ? ' · max ' + live.gpuTemp + '°C' : '');
+    ensureGpuCards(gpus.length);
+    gpus.forEach((g, i) => {
+      const nameEl = document.getElementById('gpuName' + i);
+      const liveEl = document.getElementById('gpuLive' + i);
+      if (nameEl) nameEl.textContent = 'GPU ' + i + ' · ' + g.name;
+      if (liveEl) {
+        const u = g.util == null ? 'n/a' : g.util + '%';
+        const t = g.temp == null ? '' : ' · ' + g.temp + '°C';
+        liveEl.textContent = u + t;
+      }
+    });
 
     document.getElementById('netVal').textContent =
       '↓ ' + fmtRate(live.netDownKBs) + '  ↑ ' + fmtRate(live.netUpKBs);
@@ -783,16 +953,47 @@ function paint(msg) {
 
   chart(document.getElementById('mem'), pts.map(p => p.mem), 100, a2);
 
-  const gpuSeries = pts.map(p => {
-    const arr = p.gpuUtils || [];
-    const v = arr[selectedGpu];
-    return v == null ? 0 : v;
-  });
-  chart(document.getElementById('gpu'), gpuSeries, 100, a3);
+  const nGpu = (live && live.gpus && live.gpus.length)
+    || (pts[0] && pts[0].gpuUtils && pts[0].gpuUtils.length)
+    || 0;
+  for (let i = 0; i < nGpu; i++) {
+    const c = document.getElementById('gpuC' + i);
+    if (!c) continue;
+    const util = pts.map(p => {
+      const v = p.gpuUtils && p.gpuUtils[i];
+      return v == null ? 0 : v;
+    });
+    const temp = pts.map(p => (p.gpuTemps && p.gpuTemps[i] != null) ? p.gpuTemps[i] : null);
+    utilTempChart(c, util, temp, a3, a4);
+  }
 
   const diskR = pts.map(p => (p.diskReads && p.diskReads[selectedDisk]) || 0);
   const diskW = pts.map(p => (p.diskWrites && p.diskWrites[selectedDisk]) || 0);
   dualChart(document.getElementById('disk'), diskR, diskW, Math.max(1, ...diskR, ...diskW), a5, accent);
+
+  const proc = live && live.process && live.process.alive ? live.process : null;
+  const procColor = cssVar('--vscode-charts-purple', '#b180d7');
+  if (proc) {
+    document.getElementById('procMeta').textContent =
+      proc.name + ' · PID ' + proc.pid +
+      (proc.readKBs + proc.writeKBs > 0
+        ? ' · R ' + fmtRate(proc.readKBs) + ' W ' + fmtRate(proc.writeKBs)
+        : '');
+    document.getElementById('procVal').textContent =
+      proc.cpu.toFixed(1) + '% · ' + proc.memMb.toFixed(0) + ' MB';
+    const pCpu = pts.map(p => (p.procCpu == null ? 0 : p.procCpu));
+    const pMem = pts.map(p => (p.procMemMb == null ? 0 : p.procMemMb));
+    const maxMem = Math.max(64, ...pMem);
+    // mem scaled onto same 0–maxCpu axis visually via dualScale: reuse utilTemp style
+    const maxCpu = Math.max(100, ...pCpu);
+    const memAsCpu = pMem.map(m => (m / maxMem) * maxCpu);
+    dualChart(document.getElementById('proc'), pCpu, memAsCpu, maxCpu, procColor, a2);
+  } else {
+    document.getElementById('procMeta').textContent =
+      'Not attached — Attach button / status bar / command palette';
+    document.getElementById('procVal').textContent = '—';
+    chart(document.getElementById('proc'), [], 100, procColor);
+  }
 
   const down = pts.map(p => p.down);
   const up = pts.map(p => p.up);

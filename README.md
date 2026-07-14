@@ -9,7 +9,10 @@ Live system resources in the status bar and a Task Manager–style charts panel.
 - **Status bar:** CPU %, RAM, disk R/W, GPU %, network ↓↑
 - **Sidebar panel:** smooth charts for CPU, memory, disk, GPU, network
 - **CPU:** Total utilization **or** Logical processors mosaic (scales to many cores)
-- **Multi-GPU / multi-disk:** pick a device and watch its graph
+- **Multi-GPU:** util + temperature for every GPU at once
+- **Multi-disk:** pick a disk and watch its R/W graph
+- **Time windows:** 1m / 5m / 30m (global switch for all charts)
+- **Process attach:** track CPU / RAM of a PID (debuggee or any process)
 - Works in **VS Code** and **Cursor**
 
 ## Install
@@ -42,6 +45,10 @@ Command Palette → **Extensions: Install from VSIX…**
 |---|---|---|
 | `systemMonitor.intervalMs` | `2000` | Poll interval (ms) |
 | `systemMonitor.cpuCharts` | `total` | `total` or `logical` |
+| `systemMonitor.timeWindow` | `5m` | `1m` / `5m` / `30m` |
+| `systemMonitor.autoAttachDebug` | `true` | Auto-attach on debug start |
+| `systemMonitor.detachOnDebugEnd` | `false` | Detach when debug ends |
+| `systemMonitor.showProcess` | `true` | Status bar attach control |
 | `systemMonitor.showGpu` | `true` | Status bar GPU |
 | `systemMonitor.showDisk` | `true` | Status bar disk |
 | `systemMonitor.showNetwork` | `true` | Status bar network |

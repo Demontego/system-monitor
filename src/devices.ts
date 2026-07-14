@@ -10,6 +10,7 @@ export type GpuInfo = {
   id: string;
   name: string;
   util: number | null;
+  temp: number | null;
 };
 
 export type DiskInfo = {
@@ -24,7 +25,12 @@ export type DiskInfo = {
 type ByteSample = { r: number; w: number; at: number };
 const prevDiskBytes = new Map<string, ByteSample>();
 
-type Ctrl = { model?: string; vendor?: string; utilizationGpu?: number };
+type Ctrl = {
+  model?: string;
+  vendor?: string;
+  utilizationGpu?: number;
+  temperatureGpu?: number;
+};
 type Block = {
   type?: string;
   name?: string;
@@ -65,7 +71,11 @@ export function collectGpus(graphics: { controllers?: Ctrl[] }): GpuInfo[] {
       typeof c.utilizationGpu === "number" && !Number.isNaN(c.utilizationGpu)
         ? Math.round(c.utilizationGpu)
         : null;
-    return { id: `gpu-${i}`, name, util };
+    const temp =
+      typeof c.temperatureGpu === "number" && !Number.isNaN(c.temperatureGpu)
+        ? Math.round(c.temperatureGpu)
+        : null;
+    return { id: `gpu-${i}`, name, util, temp };
   });
 }
 
