@@ -1,0 +1,130 @@
+{
+  "name": "system-monitor",
+  "displayName": "System Monitor — CPU RAM GPU Disk",
+  "description": "Live CPU (per-core), RAM, multi-GPU, multi-disk and network charts in the sidebar — Task Manager style. Windows, macOS, Linux, WSL.",
+  "version": "1.0.0",
+  "publisher": "demontego",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/demontego/system-monitor"
+  },
+  "bugs": {
+    "url": "https://github.com/demontego/system-monitor/issues"
+  },
+  "homepage": "https://github.com/demontego/system-monitor#readme",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "cpu",
+    "ram",
+    "gpu",
+    "disk",
+    "network",
+    "system monitor",
+    "task manager",
+    "performance",
+    "hardware",
+    "status bar",
+    "resources",
+    "memory"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "system-monitor",
+          "title": "System Monitor",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "system-monitor": [
+        {
+          "type": "webview",
+          "id": "systemMonitor.panel",
+          "name": "Charts"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "systemMonitor.toggleCpuCharts",
+        "title": "System Monitor: Toggle CPU Total / Logical Charts"
+      },
+      {
+        "command": "systemMonitor.refresh",
+        "title": "System Monitor: Refresh Now"
+      },
+      {
+        "command": "systemMonitor.openPanel",
+        "title": "System Monitor: Open Charts Panel"
+      }
+    ],
+    "configuration": {
+      "title": "System Monitor",
+      "properties": {
+        "systemMonitor.intervalMs": {
+          "type": "number",
+          "default": 2000,
+          "minimum": 500,
+          "description": "Poll interval in milliseconds"
+        },
+        "systemMonitor.showGpu": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show GPU in the status bar"
+        },
+        "systemMonitor.showNetwork": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show network in the status bar"
+        },
+        "systemMonitor.showDisk": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show disk I/O in the status bar"
+        },
+        "systemMonitor.cpuCharts": {
+          "type": "string",
+          "enum": ["total", "logical"],
+          "default": "total",
+          "description": "CPU charts: overall utilization or per logical processor (Task Manager style)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package",
+    "publish:ovsx": "ovsx publish",
+    "publish:vsce": "vsce publish"
+  },
+  "dependencies": {
+    "systeminformation": "^5.25.11"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.1",
+    "ovsx": "^0.10.1",
+    "typescript": "^5.3.3"
+  }
+}

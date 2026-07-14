@@ -1,0 +1,13 @@
+.vscode/**
+src/**
+tsconfig.json
+**/*.ts
+**/*.map
+.gitignore
+*.vsix
+**/.DS_Store
+PUBLISH.md
+node_modules/@types/**
+node_modules/typescript/**
+node_modules/@vscode/**
+node_modules/ovsx/**
