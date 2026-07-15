@@ -113,6 +113,20 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     --accent3: #5ed4c8;
     --accent4: #c9785c;
     --accent5: #1f8f8a;
+    /* per-metric chart colors (distinct series) */
+    --c-cpu: #2ab5a8;
+    --c-mem-used: #4ea1ff;
+    --c-mem-cache: #d7ba7d;
+    --c-mem-free: #73c991;
+    --c-disk-r: #ce9178;
+    --c-disk-w: #4fc1ff;
+    --c-gpu-u: #dcdcaa;
+    --c-gpu-m: #2ab5a8;
+    --c-gpu-t: #f14c4c;
+    --c-net-dn: #4ea1ff;
+    --c-net-up: #f14c4c;
+    --c-proc: #b180d7;
+    --c-proc-mem: #73c991;
     --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --sans: "IBM Plex Sans", "Segoe UI", var(--vscode-font-family), system-ui, sans-serif;
   }
@@ -463,9 +477,9 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       <div class="mem-break" id="memBreak"></div>
       <div class="plot"><canvas class="main" id="mem"></canvas></div>
       <div class="legend">
-        <span><i style="background:var(--accent)"></i>used</span>
-        <span><i style="background:var(--accent5)"></i>cache</span>
-        <span><i style="background:var(--accent2)"></i>free</span>
+        <span><i style="background:var(--c-mem-used)"></i>used</span>
+        <span><i style="background:var(--c-mem-cache)"></i>cache</span>
+        <span><i style="background:var(--c-mem-free)"></i>free</span>
       </div>
     </div>
   </section>
@@ -480,8 +494,8 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       <div class="dev-meta" id="diskMeta"></div>
       <div class="plot"><canvas class="main" id="disk"></canvas></div>
       <div class="legend">
-        <span><i style="background:var(--accent)"></i>read</span>
-        <span><i style="background:var(--accent3)"></i>write</span>
+        <span><i style="background:var(--c-disk-r)"></i>read</span>
+        <span><i style="background:var(--c-disk-w)"></i>write</span>
       </div>
       <div class="dev-meta" style="margin-top:8px">Mounts (free / used)</div>
       <div class="mount-list" id="mountList"></div>
@@ -516,8 +530,8 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       <div class="dev-meta" id="procMeta">Not attached — track CPU / RAM of a debuggee or any PID</div>
       <div class="plot" id="procPlot"><canvas class="main" id="proc"></canvas></div>
       <div class="legend">
-        <span><i style="background:var(--accent)"></i>cpu %</span>
-        <span><i style="background:var(--accent3)"></i>mem (scaled)</span>
+        <span><i style="background:var(--c-proc)"></i>cpu %</span>
+        <span><i style="background:var(--c-proc-mem)"></i>mem (scaled)</span>
       </div>
     </div>
   </section>
@@ -530,8 +544,8 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     <div class="card-body">
       <div class="plot"><canvas class="main" id="net"></canvas></div>
       <div class="legend">
-        <span><i style="background:var(--accent)"></i>down</span>
-        <span><i style="background:var(--accent3)"></i>up</span>
+        <span><i style="background:var(--c-net-dn)"></i>down</span>
+        <span><i style="background:var(--c-net-up)"></i>up</span>
       </div>
     </div>
   </section>
@@ -921,9 +935,9 @@ function ensureGpuCards(n) {
       '<b id="gpuLive' + i + '">—</b></div>' +
       '<div class="plot"><canvas class="main" id="gpuC' + i + '"></canvas></div>' +
       '<div class="legend">' +
-      '<span><i style="background:var(--accent)"></i>util</span>' +
-      '<span><i style="background:var(--accent3)"></i>vram</span>' +
-      '<span><i style="background:var(--accent4)"></i>temp</span>' +
+      '<span><i style="background:var(--c-gpu-u)"></i>util</span>' +
+      '<span><i style="background:var(--c-gpu-m)"></i>vram</span>' +
+      '<span><i style="background:var(--c-gpu-t)"></i>temp</span>' +
       '</div>';
     list.appendChild(el);
   }
@@ -1138,11 +1152,19 @@ function paint(msg) {
   if (msg.timeWindow) setWinUI(msg.timeWindow);
   const pts = filterWindow(msg.points || [], timeWindow);
 
-  const accent = cssVar('--accent', '#2ab5a8');
-  const a2 = cssVar('--accent2', '#157a74');
-  const a3 = cssVar('--accent3', '#5ed4c8');
-  const a4 = cssVar('--accent4', '#c9785c');
-  const a5 = cssVar('--accent5', '#1f8f8a');
+  const cCpu = cssVar('--c-cpu', '#2ab5a8');
+  const cMemU = cssVar('--c-mem-used', '#4ea1ff');
+  const cMemC = cssVar('--c-mem-cache', '#d7ba7d');
+  const cMemF = cssVar('--c-mem-free', '#73c991');
+  const cDiskR = cssVar('--c-disk-r', '#ce9178');
+  const cDiskW = cssVar('--c-disk-w', '#4fc1ff');
+  const cGpuU = cssVar('--c-gpu-u', '#dcdcaa');
+  const cGpuM = cssVar('--c-gpu-m', '#2ab5a8');
+  const cGpuT = cssVar('--c-gpu-t', '#f14c4c');
+  const cNetDn = cssVar('--c-net-dn', '#4ea1ff');
+  const cNetUp = cssVar('--c-net-up', '#f14c4c');
+  const cProc = cssVar('--c-proc', '#b180d7');
+  const cProcMem = cssVar('--c-proc-mem', '#73c991');
 
   if (live) {
     document.getElementById('meta').textContent =
@@ -1170,9 +1192,9 @@ function paint(msg) {
     const breakEl = document.getElementById('memBreak');
     if (breakEl) {
       breakEl.innerHTML =
-        '<span><b style="color:var(--accent)">' + live.memAppGb.toFixed(1) + 'G</b> used</span>' +
-        '<span><b style="color:var(--accent5)">' + live.memCacheGb.toFixed(1) + 'G</b> cache</span>' +
-        '<span><b style="color:var(--accent2)">' + live.memFreeGb.toFixed(1) + 'G</b> free</span>' +
+        '<span><b style="color:var(--c-mem-used)">' + live.memAppGb.toFixed(1) + 'G</b> used</span>' +
+        '<span><b style="color:var(--c-mem-cache)">' + live.memCacheGb.toFixed(1) + 'G</b> cache</span>' +
+        '<span><b style="color:var(--c-mem-free)">' + live.memFreeGb.toFixed(1) + 'G</b> free</span>' +
         '<span style="color:var(--muted)">avail ' + live.memAvailableGb.toFixed(1) + 'G</span>';
     }
 
@@ -1252,16 +1274,16 @@ function paint(msg) {
       document.getElementById('cpuLogical'),
       pts,
       (live && live.cpuCores) || [],
-      accent,
+      cCpu,
     );
   } else {
-    chart(document.getElementById('cpu'), pts.map(p => p.cpu), 100, accent);
+    chart(document.getElementById('cpu'), pts.map(p => p.cpu), 100, cCpu);
   }
 
   const memApp = pts.map(p => p.memApp != null ? p.memApp : p.mem);
   const memCache = pts.map(p => p.memCache != null ? p.memCache : 0);
   const memFree = pts.map(p => p.memFree != null ? p.memFree : Math.max(0, 100 - (p.mem || 0)));
-  stackedMemChart(document.getElementById('mem'), memApp, memCache, memFree, accent, a5, a2);
+  stackedMemChart(document.getElementById('mem'), memApp, memCache, memFree, cMemU, cMemC, cMemF);
 
   const nGpu = (live && live.gpus && live.gpus.length)
     || (pts[0] && pts[0].gpuUtils && pts[0].gpuUtils.length)
@@ -1277,15 +1299,14 @@ function paint(msg) {
       (p.gpuMemPct && p.gpuMemPct[i] != null) ? p.gpuMemPct[i] : null
     );
     const temp = pts.map(p => (p.gpuTemps && p.gpuTemps[i] != null) ? p.gpuTemps[i] : null);
-    gpuChart(c, util, memPct, temp, accent, a3, a4);
+    gpuChart(c, util, memPct, temp, cGpuU, cGpuM, cGpuT);
   }
 
   const diskR = pts.map(p => (p.diskReads && p.diskReads[selectedDisk]) || 0);
   const diskW = pts.map(p => (p.diskWrites && p.diskWrites[selectedDisk]) || 0);
-  dualChart(document.getElementById('disk'), diskR, diskW, Math.max(1, ...diskR, ...diskW), accent, a3);
+  dualChart(document.getElementById('disk'), diskR, diskW, Math.max(1, ...diskR, ...diskW), cDiskR, cDiskW);
 
   const proc = live && live.process && live.process.alive ? live.process : null;
-  const procColor = accent;
   if (proc) {
     document.getElementById('procMeta').textContent =
       proc.name + ' · PID ' + proc.pid +
@@ -1297,20 +1318,19 @@ function paint(msg) {
     const pCpu = pts.map(p => (p.procCpu == null ? 0 : p.procCpu));
     const pMem = pts.map(p => (p.procMemMb == null ? 0 : p.procMemMb));
     const maxMem = Math.max(64, ...pMem);
-    // mem scaled onto same 0–maxCpu axis visually via dualScale: reuse utilTemp style
     const maxCpu = Math.max(100, ...pCpu);
     const memAsCpu = pMem.map(m => (m / maxMem) * maxCpu);
-    dualChart(document.getElementById('proc'), pCpu, memAsCpu, maxCpu, procColor, a3);
+    dualChart(document.getElementById('proc'), pCpu, memAsCpu, maxCpu, cProc, cProcMem);
   } else {
     document.getElementById('procMeta').textContent =
       'Not attached — Attach button / status bar / command palette';
     document.getElementById('procVal').textContent = '—';
-    chart(document.getElementById('proc'), [], 100, procColor);
+    chart(document.getElementById('proc'), [], 100, cProc);
   }
 
   const down = pts.map(p => p.down);
   const up = pts.map(p => p.up);
-  dualChart(document.getElementById('net'), down, up, Math.max(1, ...down, ...up), accent, a3);
+  dualChart(document.getElementById('net'), down, up, Math.max(1, ...down, ...up), cNetDn, cNetUp);
 }
 
 let lastMsg = null;

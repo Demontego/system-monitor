@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1
+
+- Distinct chart colors per metric (CPU / RAM / disk / GPU / net / process)
+
 ## 1.4.0
 
 - RAM breakdown: **used / cache / free** (+ available) with stacked chart
