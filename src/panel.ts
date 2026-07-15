@@ -124,26 +124,37 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     text-transform: uppercase;
     color: var(--muted);
   }
-  .gpu-block {
-    margin-top: 8px;
-    padding-top: 8px;
-    border-top: 1px solid var(--line);
+  #gpuList {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
-  .gpu-block:first-child {
-    margin-top: 0;
-    padding-top: 0;
-    border-top: 0;
+  #gpuList.cols-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+  .gpu-block {
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 6px;
+    background: var(--surface2);
+    min-width: 0;
   }
   .gpu-head {
     display: flex;
     justify-content: space-between;
-    gap: 8px;
-    padding: 0 6px 6px;
-    font-size: 11px;
+    gap: 6px;
+    padding: 0 2px 6px;
+    font-size: 10px;
   }
   .gpu-head b {
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
+    text-align: right;
+    white-space: nowrap;
+  }
+  .gpu-block canvas.main {
+    height: 72px;
   }
   canvas.temp {
     width: 100%;
@@ -200,6 +211,23 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   .card.net { --tone: var(--accent4); }
   .card.proc { --tone: var(--vscode-charts-purple, #b180d7); }
   .card.proc.hidden { display: none; }
+  .card.collapsed .card-body { display: none; }
+  .card .chev {
+    display: inline-block;
+    width: 1em;
+    margin-right: 4px;
+    transition: transform .12s ease;
+    opacity: 0.75;
+  }
+  .card.collapsed .chev { transform: rotate(-90deg); }
+  .card .head {
+    cursor: pointer;
+    user-select: none;
+  }
+  .card .head .seg,
+  .card .head .seg button {
+    cursor: pointer;
+  }
   .linkish {
     appearance: none;
     border: 0;
@@ -338,72 +366,90 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     <div class="meta" id="meta">waiting…</div>
   </div>
 
-  <section class="card cpu">
+  <section class="card cpu" data-panel="cpu">
     <div class="head">
-      <span class="label">CPU</span>
+      <span class="label"><span class="chev">▾</span>CPU</span>
       <div class="seg" id="cpuSeg">
         <button type="button" data-mode="total" class="on">Total</button>
         <button type="button" data-mode="logical">Logical processors</button>
       </div>
       <span class="val" id="cpuVal">—</span>
     </div>
-    <div class="plot" id="cpuTotalPlot"><canvas class="main" id="cpu"></canvas></div>
-    <div class="logical-wrap hidden" id="cpuLogicalWrap">
-      <canvas id="cpuLogical"></canvas>
-      <div class="logical-hint" id="logicalHint">hover a cell</div>
+    <div class="card-body">
+      <div class="plot" id="cpuTotalPlot"><canvas class="main" id="cpu"></canvas></div>
+      <div class="logical-wrap hidden" id="cpuLogicalWrap">
+        <canvas id="cpuLogical"></canvas>
+        <div class="logical-hint" id="logicalHint">hover a cell</div>
+      </div>
     </div>
   </section>
 
-  <section class="card mem">
-    <div class="head"><span class="label">Memory</span><span class="val" id="memVal">—</span></div>
-    <div class="plot"><canvas class="main" id="mem"></canvas></div>
+  <section class="card mem" data-panel="mem">
+    <div class="head">
+      <span class="label"><span class="chev">▾</span>Memory</span>
+      <span class="val" id="memVal">—</span>
+    </div>
+    <div class="card-body">
+      <div class="plot"><canvas class="main" id="mem"></canvas></div>
+    </div>
   </section>
 
-  <section class="card disk">
+  <section class="card disk" data-panel="disk">
     <div class="head">
-      <span class="label">Disk</span>
+      <span class="label"><span class="chev">▾</span>Disk</span>
       <div class="seg wrap" id="diskSeg"></div>
       <span class="val" id="diskVal">—</span>
     </div>
-    <div class="dev-meta" id="diskMeta"></div>
-    <div class="plot"><canvas class="main" id="disk"></canvas></div>
-    <div class="legend">
-      <span><i style="background:var(--accent5)"></i>read</span>
-      <span><i style="background:var(--accent)"></i>write</span>
+    <div class="card-body">
+      <div class="dev-meta" id="diskMeta"></div>
+      <div class="plot"><canvas class="main" id="disk"></canvas></div>
+      <div class="legend">
+        <span><i style="background:var(--accent5)"></i>read</span>
+        <span><i style="background:var(--accent)"></i>write</span>
+      </div>
     </div>
   </section>
 
-  <section class="card gpu">
+  <section class="card gpu" data-panel="gpu">
     <div class="head">
-      <span class="label">GPU</span>
+      <span class="label"><span class="chev">▾</span>GPU</span>
       <span class="val" id="gpuVal">—</span>
     </div>
-    <div id="gpuList"></div>
+    <div class="card-body">
+      <div id="gpuList"></div>
+    </div>
   </section>
 
-  <section class="card proc" id="procCard">
+  <section class="card proc" id="procCard" data-panel="proc">
     <div class="head">
-      <span class="label">Process</span>
+      <span class="label"><span class="chev">▾</span>Process</span>
       <div class="seg">
         <button type="button" id="attachBtn">Attach</button>
         <button type="button" id="detachBtn">Detach</button>
       </div>
       <span class="val" id="procVal">—</span>
     </div>
-    <div class="dev-meta" id="procMeta">Not attached — track CPU / RAM of a debuggee or any PID</div>
-    <div class="plot" id="procPlot"><canvas class="main" id="proc"></canvas></div>
-    <div class="legend">
-      <span><i style="background:var(--vscode-charts-purple, #b180d7)"></i>cpu %</span>
-      <span><i style="background:var(--accent2)"></i>mem (scaled)</span>
+    <div class="card-body">
+      <div class="dev-meta" id="procMeta">Not attached — track CPU / RAM of a debuggee or any PID</div>
+      <div class="plot" id="procPlot"><canvas class="main" id="proc"></canvas></div>
+      <div class="legend">
+        <span><i style="background:var(--vscode-charts-purple, #b180d7)"></i>cpu %</span>
+        <span><i style="background:var(--accent2)"></i>mem (scaled)</span>
+      </div>
     </div>
   </section>
 
-  <section class="card net">
-    <div class="head"><span class="label">Network</span><span class="val" id="netVal">—</span></div>
-    <div class="plot"><canvas class="main" id="net"></canvas></div>
-    <div class="legend">
-      <span><i style="background:var(--accent)"></i>down</span>
-      <span><i style="background:var(--accent4)"></i>up</span>
+  <section class="card net" data-panel="net">
+    <div class="head">
+      <span class="label"><span class="chev">▾</span>Network</span>
+      <span class="val" id="netVal">—</span>
+    </div>
+    <div class="card-body">
+      <div class="plot"><canvas class="main" id="net"></canvas></div>
+      <div class="legend">
+        <span><i style="background:var(--accent)"></i>down</span>
+        <span><i style="background:var(--accent4)"></i>up</span>
+      </div>
     </div>
   </section>
 
@@ -450,6 +496,22 @@ document.getElementById('attachBtn').addEventListener('click', () => {
 });
 document.getElementById('detachBtn').addEventListener('click', () => {
   vscodeApi.postMessage({ type: 'detach' });
+});
+
+const foldState = (vscodeApi.getState && vscodeApi.getState()) || {};
+const collapsed = foldState.collapsed || {};
+document.querySelectorAll('.card[data-panel]').forEach(card => {
+  const key = card.getAttribute('data-panel');
+  if (collapsed[key]) card.classList.add('collapsed');
+  const head = card.querySelector('.head');
+  if (!head) return;
+  head.addEventListener('click', (e) => {
+    if (e.target.closest('button, .seg')) return;
+    card.classList.toggle('collapsed');
+    collapsed[key] = card.classList.contains('collapsed');
+    vscodeApi.setState({ collapsed });
+    if (lastMsg && !card.classList.contains('collapsed')) paint(lastMsg);
+  });
 });
 
 function cssVar(name, fallback) {
@@ -615,38 +677,47 @@ function dualChart(canvas, a, b, maxY, ca, cb) {
   ctx.strokeStyle = cb; strokeSmooth(ctx, bPts);
 }
 
-/** util 0–100 + temp with auto °C scale on same canvas */
-function utilTempChart(canvas, util, temp, colorU, colorT) {
+function fillSeries(series) {
+  return series.map((v, i) => {
+    if (v != null) return v;
+    let L = i - 1, R = i + 1;
+    while (L >= 0 && series[L] == null) L--;
+    while (R < series.length && series[R] == null) R++;
+    if (L >= 0 && R < series.length) return (series[L] + series[R]) / 2;
+    if (L >= 0) return series[L];
+    if (R < series.length) return series[R];
+    return 0;
+  });
+}
+
+/** util % + VRAM % + temp °C */
+function gpuChart(canvas, util, memPct, temp, colorU, colorM, colorT) {
   const { w, h } = size(canvas);
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, w, h);
-  const pad = 6 * dpr();
-  drawGrid(ctx, w, h, pad, 3);
+  const pad = 5 * dpr();
+  drawGrid(ctx, w, h, pad, 2);
   if (!util.length) return;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
   const uPts = toXY(ema(util, 0.38), 100, w, h, pad);
   fillSmooth(ctx, uPts, w, h, colorU);
-  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  ctx.strokeStyle = colorU; ctx.lineWidth = 2 * dpr(); strokeSmooth(ctx, uPts);
-  const temps = temp.map(v => (v == null ? null : v));
-  if (temps.some(v => v != null)) {
-    const filled = temps.map((v, i) => {
-      if (v != null) return v;
-      let L = i - 1, R = i + 1;
-      while (L >= 0 && temps[L] == null) L--;
-      while (R < temps.length && temps[R] == null) R++;
-      if (L >= 0 && R < temps.length) return (temps[L] + temps[R]) / 2;
-      if (L >= 0) return temps[L];
-      if (R < temps.length) return temps[R];
-      return 0;
-    });
+  ctx.strokeStyle = colorU; ctx.lineWidth = 1.8 * dpr(); strokeSmooth(ctx, uPts);
+  if (memPct.some(v => v != null)) {
+    const mPts = toXY(ema(fillSeries(memPct), 0.38), 100, w, h, pad);
+    ctx.strokeStyle = colorM; ctx.lineWidth = 1.5 * dpr(); strokeSmooth(ctx, mPts);
+  }
+  if (temp.some(v => v != null)) {
+    const filled = fillSeries(temp);
     const maxT = Math.max(80, ...filled) * 1.05;
     const tPts = toXY(ema(filled, 0.35), maxT, w, h, pad);
-    ctx.strokeStyle = colorT; ctx.lineWidth = 1.6 * dpr(); strokeSmooth(ctx, tPts);
+    ctx.strokeStyle = colorT; ctx.lineWidth = 1.4 * dpr(); strokeSmooth(ctx, tPts);
   }
 }
 
 function ensureGpuCards(n) {
   const list = document.getElementById('gpuList');
+  list.classList.toggle('cols-2', n >= 2);
   if (gpuReady === n && list.children.length === n) return;
   gpuReady = n;
   list.innerHTML = '';
@@ -658,11 +729,18 @@ function ensureGpuCards(n) {
       '<b id="gpuLive' + i + '">—</b></div>' +
       '<div class="plot"><canvas class="main" id="gpuC' + i + '"></canvas></div>' +
       '<div class="legend">' +
-      '<span><i style="background:var(--accent3)"></i>util %</span>' +
-      '<span><i style="background:var(--accent4)"></i>temp °C</span>' +
+      '<span><i style="background:var(--accent3)"></i>util</span>' +
+      '<span><i style="background:var(--accent2)"></i>vram</span>' +
+      '<span><i style="background:var(--accent4)"></i>temp</span>' +
       '</div>';
     list.appendChild(el);
   }
+}
+
+function fmtVram(mb) {
+  if (mb == null) return '';
+  if (mb >= 1024) return (mb / 1024).toFixed(1) + 'G';
+  return Math.round(mb) + 'M';
 }
 
 function fmtRate(k) {
@@ -917,9 +995,14 @@ function paint(msg) {
     }
 
     const gpus = live.gpus || [];
+    const vramBits = gpus
+      .filter(g => g.memUsedMb != null && g.memTotalMb)
+      .map(g => fmtVram(g.memUsedMb) + '/' + fmtVram(g.memTotalMb));
     document.getElementById('gpuVal').textContent =
-      gpus.length + ' device' + (gpus.length === 1 ? '' : 's') +
-      (live.gpuTemp != null ? ' · max ' + live.gpuTemp + '°C' : '');
+      gpus.length + ' GPU' +
+      (live.gpuPct != null ? ' · ' + live.gpuPct + '%' : '') +
+      (live.gpuTemp != null ? ' · ' + live.gpuTemp + '°' : '') +
+      (vramBits.length ? ' · ' + vramBits[0] + (vramBits.length > 1 ? '…' : '') : '');
     ensureGpuCards(gpus.length);
     gpus.forEach((g, i) => {
       const nameEl = document.getElementById('gpuName' + i);
@@ -927,8 +1010,12 @@ function paint(msg) {
       if (nameEl) nameEl.textContent = 'GPU ' + i + ' · ' + g.name;
       if (liveEl) {
         const u = g.util == null ? 'n/a' : g.util + '%';
-        const t = g.temp == null ? '' : ' · ' + g.temp + '°C';
-        liveEl.textContent = u + t;
+        const t = g.temp == null ? '' : ' · ' + g.temp + '°';
+        const m =
+          g.memUsedMb != null && g.memTotalMb
+            ? ' · ' + fmtVram(g.memUsedMb) + '/' + fmtVram(g.memTotalMb)
+            : '';
+        liveEl.textContent = u + t + m;
       }
     });
 
@@ -963,8 +1050,11 @@ function paint(msg) {
       const v = p.gpuUtils && p.gpuUtils[i];
       return v == null ? 0 : v;
     });
+    const memPct = pts.map(p =>
+      (p.gpuMemPct && p.gpuMemPct[i] != null) ? p.gpuMemPct[i] : null
+    );
     const temp = pts.map(p => (p.gpuTemps && p.gpuTemps[i] != null) ? p.gpuTemps[i] : null);
-    utilTempChart(c, util, temp, a3, a4);
+    gpuChart(c, util, memPct, temp, a3, a2, a4);
   }
 
   const diskR = pts.map(p => (p.diskReads && p.diskReads[selectedDisk]) || 0);

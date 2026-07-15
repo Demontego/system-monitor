@@ -72,7 +72,12 @@ function paint(s: Snapshot) {
     gpuItem.show();
     const util = s.gpuPct != null ? `${s.gpuPct}%` : "—";
     const temp = s.gpuTemp != null ? ` ${s.gpuTemp}°` : "";
-    gpuItem.text = `$(circuit-board) ${util}${temp}`;
+    const hot = [...s.gpus].sort((a, b) => (b.util ?? 0) - (a.util ?? 0))[0];
+    const vram =
+      hot?.memUsedMb != null && hot.memTotalMb
+        ? ` ${(hot.memUsedMb / 1024).toFixed(1)}/${(hot.memTotalMb / 1024).toFixed(0)}G`
+        : "";
+    gpuItem.text = `$(circuit-board) ${util}${temp}${vram}`;
     gpuItem.tooltip =
       s.gpus.length === 0
         ? "GPU n/a"
@@ -80,7 +85,11 @@ function paint(s: Snapshot) {
             .map((g) => {
               const u = g.util == null ? "n/a" : `${g.util}%`;
               const t = g.temp == null ? "" : ` · ${g.temp}°C`;
-              return `${g.name}: ${u}${t}`;
+              const m =
+                g.memUsedMb != null && g.memTotalMb
+                  ? ` · VRAM ${(g.memUsedMb / 1024).toFixed(1)}/${(g.memTotalMb / 1024).toFixed(1)} GB`
+                  : "";
+              return `${g.name}: ${u}${t}${m}`;
             })
             .join("\n");
   } else {

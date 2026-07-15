@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.0
+
+- Collapsible panels (click section header; state persisted)
+- GPU VRAM used/total + memory % on charts
+- Multi-GPU layout: 2 columns when 2+ GPUs
+
 ## 1.2.1
 
 - Fix WSL GPU detection: use `nvidia-smi` directly (systeminformation returns empty controllers in WSL2)

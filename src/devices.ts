@@ -11,6 +11,9 @@ export type GpuInfo = {
   name: string;
   util: number | null;
   temp: number | null;
+  /** VRAM used / total in MiB */
+  memUsedMb: number | null;
+  memTotalMb: number | null;
 };
 
 export type DiskInfo = {
@@ -28,8 +31,11 @@ const prevDiskBytes = new Map<string, ByteSample>();
 type Ctrl = {
   model?: string;
   vendor?: string;
-  utilizationGpu?: number;
-  temperatureGpu?: number;
+  utilizationGpu?: number | null;
+  temperatureGpu?: number | null;
+  memoryUsed?: number | null;
+  memoryTotal?: number | null;
+  vram?: number | null;
 };
 type Block = {
   type?: string;
@@ -63,6 +69,12 @@ function rateFromDelta(
   };
 }
 
+function parseMemMb(v: unknown): number | null {
+  if (typeof v !== "number" || Number.isNaN(v) || v < 0) return null;
+  // systeminformation may report MB already; values >> 256000 are likely MiB from smi
+  return Math.round(v);
+}
+
 export function collectGpusFromControllers(graphics: { controllers?: Ctrl[] }): GpuInfo[] {
   const list = graphics.controllers ?? [];
   return list.map((c, i) => {
@@ -75,7 +87,9 @@ export function collectGpusFromControllers(graphics: { controllers?: Ctrl[] }): 
       typeof c.temperatureGpu === "number" && !Number.isNaN(c.temperatureGpu)
         ? Math.round(c.temperatureGpu)
         : null;
-    return { id: `gpu-${i}`, name, util, temp };
+    const memUsedMb = parseMemMb(c.memoryUsed);
+    const memTotalMb = parseMemMb(c.memoryTotal ?? c.vram);
+    return { id: `gpu-${i}`, name, util, temp, memUsedMb, memTotalMb };
   });
 }
 
@@ -90,7 +104,7 @@ async function gpusFromNvidiaSmi(): Promise<GpuInfo[]> {
       : ["nvidia-smi", "/usr/lib/wsl/lib/nvidia-smi", "/usr/bin/nvidia-smi"];
 
   const args = [
-    "--query-gpu=name,utilization.gpu,temperature.gpu",
+    "--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total",
     "--format=csv,noheader,nounits",
   ];
 
@@ -120,21 +134,18 @@ async function gpusFromNvidiaSmi(): Promise<GpuInfo[]> {
         const parts = lines[i].split(",").map((p) => p.trim());
         if (parts.length < 1) continue;
         const name = shortName(parts[0] || `GPU ${i}`);
-        const utilRaw = parts[1];
-        const tempRaw = parts[2];
-        const util =
-          utilRaw && utilRaw !== "[N/A]" && utilRaw !== "N/A"
-            ? Math.round(parseFloat(utilRaw))
-            : null;
-        const temp =
-          tempRaw && tempRaw !== "[N/A]" && tempRaw !== "N/A"
-            ? Math.round(parseFloat(tempRaw))
-            : null;
+        const num = (raw: string | undefined) => {
+          if (!raw || raw === "[N/A]" || raw === "N/A") return null;
+          const n = parseFloat(raw);
+          return Number.isNaN(n) ? null : Math.round(n);
+        };
         gpus.push({
           id: `gpu-${i}`,
           name,
-          util: util != null && !Number.isNaN(util) ? util : null,
-          temp: temp != null && !Number.isNaN(temp) ? temp : null,
+          util: num(parts[1]),
+          temp: num(parts[2]),
+          memUsedMb: num(parts[3]),
+          memTotalMb: num(parts[4]),
         });
       }
       if (gpus.length) return gpus;

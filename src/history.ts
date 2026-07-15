@@ -7,6 +7,7 @@ export type Point = {
   mem: number;
   gpuUtils: (number | null)[];
   gpuTemps: (number | null)[];
+  gpuMemPct: (number | null)[];
   diskReads: number[];
   diskWrites: number[];
   down: number;
@@ -32,6 +33,11 @@ export class History {
       mem: s.memPct,
       gpuUtils: s.gpus.map((g) => g.util),
       gpuTemps: s.gpus.map((g) => g.temp),
+      gpuMemPct: s.gpus.map((g) =>
+        g.memUsedMb != null && g.memTotalMb && g.memTotalMb > 0
+          ? (g.memUsedMb / g.memTotalMb) * 100
+          : null,
+      ),
       diskReads: s.disks.map((d) => d.readKBs),
       diskWrites: s.disks.map((d) => d.writeKBs),
       down: s.netDownKBs,
