@@ -5,9 +5,13 @@ export type Point = {
   cpu: number;
   cpuCores: number[];
   mem: number;
+  memApp: number;
+  memCache: number;
+  memFree: number;
   gpuUtils: (number | null)[];
   gpuTemps: (number | null)[];
   gpuMemPct: (number | null)[];
+  gpuPower: (number | null)[];
   diskReads: number[];
   diskWrites: number[];
   down: number;
@@ -21,6 +25,10 @@ export type Point = {
 const KEEP_MS = 30 * 60 * 1000;
 const HARD_MAX = 2000;
 
+function pct(part: number, total: number): number {
+  return total > 0 ? (part / total) * 100 : 0;
+}
+
 export class History {
   private buf: Point[] = [];
 
@@ -31,6 +39,9 @@ export class History {
       cpu: s.cpuTotal,
       cpuCores: s.cpuCores.slice(),
       mem: s.memPct,
+      memApp: pct(s.memAppGb, s.memTotalGb),
+      memCache: pct(s.memCacheGb, s.memTotalGb),
+      memFree: pct(s.memFreeGb, s.memTotalGb),
       gpuUtils: s.gpus.map((g) => g.util),
       gpuTemps: s.gpus.map((g) => g.temp),
       gpuMemPct: s.gpus.map((g) =>
@@ -38,6 +49,7 @@ export class History {
           ? (g.memUsedMb / g.memTotalMb) * 100
           : null,
       ),
+      gpuPower: s.gpus.map((g) => g.powerW),
       diskReads: s.disks.map((d) => d.readKBs),
       diskWrites: s.disks.map((d) => d.writeKBs),
       down: s.netDownKBs,

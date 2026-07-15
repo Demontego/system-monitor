@@ -17,7 +17,12 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     private readonly history: History,
     private readonly onCpuMode: (mode: CpuChartsMode) => void,
     private readonly onTimeWindow: (win: TimeWindow) => void,
-    private readonly actions?: { onAttach?: () => void; onDetach?: () => void },
+    private readonly actions?: {
+      onAttach?: () => void;
+      onDetach?: () => void;
+      onAttachPid?: (pid: number) => void;
+      onCopyCuda?: (ids: number[]) => void;
+    },
   ) {}
 
   setCpuMode(mode: CpuChartsMode) {
@@ -50,6 +55,14 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       }
       if (msg?.type === "attach") this.actions?.onAttach?.();
       if (msg?.type === "detach") this.actions?.onDetach?.();
+      if (msg?.type === "attachPid" && typeof msg.pid === "number") {
+        this.actions?.onAttachPid?.(msg.pid);
+      }
+      if (msg?.type === "copyCuda" && Array.isArray(msg.ids)) {
+        this.actions?.onCopyCuda?.(
+          msg.ids.map(Number).filter((n: number) => Number.isFinite(n)),
+        );
+      }
     });
     this.flush();
   }
@@ -84,45 +97,47 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
 <style>
   :root {
-    --fg: var(--vscode-foreground);
-    --muted: var(--vscode-descriptionForeground);
-    --line: var(--vscode-widget-border, var(--vscode-panel-border, rgba(127,127,127,.28)));
-    --surface: color-mix(in srgb, var(--vscode-editor-background) 72%, var(--vscode-foreground) 6%);
-    --surface2: color-mix(in srgb, var(--vscode-sideBar-background, var(--vscode-editor-background)) 88%, var(--vscode-foreground) 4%);
-    --btn: var(--vscode-button-secondaryBackground, color-mix(in srgb, var(--fg) 12%, transparent));
-    --btn-fg: var(--vscode-button-secondaryForeground, var(--fg));
-    --btn-on: var(--vscode-button-background, #0e639c);
-    --btn-on-fg: var(--vscode-button-foreground, #fff);
-    --accent: var(--vscode-charts-blue, #4ea1ff);
-    --accent2: var(--vscode-charts-green, #73c991);
-    --accent3: var(--vscode-charts-yellow, #d7ba7d);
-    --accent4: var(--vscode-charts-red, #f14c4c);
-    --accent5: var(--vscode-charts-orange, #ce9178);
-    --mono: var(--vscode-editor-font-family, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+    /* teal dashboard — mixes with VS Code chrome */
+    --fg: var(--vscode-foreground, #e8ecef);
+    --muted: color-mix(in srgb, var(--fg) 55%, #6a7a82);
+    --line: color-mix(in srgb, #1a9e96 18%, transparent);
+    --bg: color-mix(in srgb, var(--vscode-sideBar-background, #0b0e12) 92%, #061014);
+    --surface: transparent;
+    --surface2: color-mix(in srgb, #0a1216 70%, transparent);
+    --btn: color-mix(in srgb, #1a9e96 16%, transparent);
+    --btn-fg: var(--fg);
+    --btn-on: #1a9e96;
+    --btn-on-fg: #061014;
+    --accent: #2ab5a8;
+    --accent2: #157a74;
+    --accent3: #5ed4c8;
+    --accent4: #c9785c;
+    --accent5: #1f8f8a;
+    --mono: "IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: "IBM Plex Sans", "Segoe UI", var(--vscode-font-family), system-ui, sans-serif;
   }
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: 14px 12px 20px;
+    padding: 16px 14px 28px;
     color: var(--fg);
-    font: 12px/1.45 var(--vscode-font-family);
-    background:
-      radial-gradient(120% 60% at 0% 0%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 55%),
-      var(--vscode-sideBar-background, var(--vscode-editor-background));
+    font: 12px/1.45 var(--sans);
+    background: var(--bg);
   }
-  .hero { margin-bottom: 14px; }
+  .hero { margin-bottom: 18px; }
   .brand-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 8px;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
   .brand {
     font-size: 11px;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--accent3);
+    opacity: 0.85;
   }
   #gpuList {
     display: grid;
@@ -134,10 +149,10 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   }
   .gpu-block {
     margin: 0;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 6px;
-    background: var(--surface2);
+    border: none;
+    border-radius: 0;
+    padding: 4px 0 8px;
+    background: transparent;
     min-width: 0;
   }
   .gpu-head {
@@ -156,6 +171,70 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   .gpu-block canvas.main {
     height: 72px;
   }
+  .cuda-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 8px;
+    font-size: 11px;
+  }
+  .cuda-row label {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    cursor: pointer;
+  }
+  .mount-list, .proc-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 6px 0 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+  }
+  .mount-row, .proc-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+    align-items: center;
+  }
+  .proc-row {
+    grid-template-columns: 1fr auto auto;
+  }
+  .bar-track {
+    height: 4px;
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--fg) 12%, transparent);
+    overflow: hidden;
+    margin-top: 2px;
+  }
+  .bar-fill {
+    height: 100%;
+    background: var(--accent);
+  }
+  .bar-fill.hot { background: var(--accent4); }
+  .btn-mini {
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-size: 10px;
+    cursor: pointer;
+    background: transparent;
+    color: var(--accent3);
+  }
+  .btn-mini:hover {
+    background: color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  .mem-break {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    margin-bottom: 6px;
+    font-family: var(--mono);
+    font-size: 11px;
+  }
+  .mem-break b { font-weight: 600; }
   canvas.temp {
     width: 100%;
     height: 48px;
@@ -170,46 +249,35 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   .hero-stat {
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
-    font-size: 18px;
+    font-size: 20px;
     font-weight: 600;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.03em;
+    color: #f2f6f7;
   }
   .hero-stat small {
     font-size: 10px;
     font-weight: 500;
     color: var(--muted);
-    margin-left: 4px;
-    letter-spacing: 0;
+    margin-left: 5px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
   .meta {
-    margin-top: 8px;
+    margin-top: 10px;
     color: var(--muted);
     font-size: 11px;
     word-break: break-word;
   }
   .card {
     background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 10px;
-    padding: 10px 10px 8px;
-    margin-bottom: 10px;
+    border: none;
+    border-radius: 0;
+    padding: 4px 2px 14px;
+    margin-bottom: 8px;
     position: relative;
-    overflow: hidden;
+    overflow: visible;
   }
-  .card::before {
-    content: "";
-    position: absolute;
-    left: 0; top: 0; bottom: 0;
-    width: 3px;
-    background: var(--tone, var(--accent));
-    opacity: 0.85;
-  }
-  .card.cpu { --tone: var(--accent); }
-  .card.mem { --tone: var(--accent2); }
-  .card.gpu { --tone: var(--accent3); }
-  .card.disk { --tone: var(--accent5); }
-  .card.net { --tone: var(--accent4); }
-  .card.proc { --tone: var(--vscode-charts-purple, #b180d7); }
+  .card::before { display: none; }
   .card.proc.hidden { display: none; }
   .card.collapsed .card-body { display: none; }
   .card .chev {
@@ -217,7 +285,8 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     width: 1em;
     margin-right: 4px;
     transition: transform .12s ease;
-    opacity: 0.75;
+    opacity: 0.45;
+    color: var(--accent);
   }
   .card.collapsed .chev { transform: rotate(-90deg); }
   .card .head {
@@ -232,7 +301,7 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     appearance: none;
     border: 0;
     background: transparent;
-    color: var(--vscode-textLink-foreground, var(--accent));
+    color: var(--accent3);
     font: inherit;
     font-size: 11px;
     cursor: pointer;
@@ -242,36 +311,37 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   .head {
     display: flex;
     justify-content: space-between;
-    align-items: center;
+    align-items: baseline;
     gap: 8px;
-    padding-left: 6px;
-    margin-bottom: 8px;
+    padding-left: 0;
+    margin-bottom: 6px;
     flex-wrap: wrap;
   }
   .label {
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--muted);
+    font-size: 14px;
+    letter-spacing: -0.01em;
+    text-transform: none;
+    color: #f0f4f5;
     font-weight: 600;
   }
   .val {
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
-    font-size: 12px;
-    font-weight: 600;
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--muted);
   }
   .seg {
     display: inline-flex;
-    border: 1px solid var(--line);
-    border-radius: 7px;
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    border-radius: 4px;
     overflow: hidden;
   }
   .seg button {
     appearance: none;
     border: 0;
     margin: 0;
-    padding: 4px 9px;
+    padding: 3px 8px;
     background: transparent;
     color: var(--muted);
     font: inherit;
@@ -279,25 +349,25 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     cursor: pointer;
   }
   .seg button.on {
-    background: var(--btn-on);
-    color: var(--btn-on-fg);
+    background: color-mix(in srgb, var(--accent) 28%, transparent);
+    color: var(--accent3);
   }
   .plot {
     position: relative;
-    border-radius: 8px;
-    background: var(--surface2);
-    overflow: hidden;
+    border-radius: 0;
+    background: transparent;
+    overflow: visible;
   }
   canvas.main {
     width: 100%;
-    height: 96px;
+    height: 110px;
     display: block;
   }
   .logical-wrap {
-    border-radius: 6px;
-    background: var(--surface2);
+    border-radius: 0;
+    background: transparent;
     overflow: hidden;
-    border: 1px solid var(--line);
+    border: none;
   }
   .logical-wrap.hidden, .plot.hidden { display: none; }
   #cpuLogical {
@@ -332,17 +402,17 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   }
   .legend {
     display: flex;
-    gap: 12px;
-    padding: 6px 6px 0;
+    gap: 14px;
+    padding: 4px 0 0;
     color: var(--muted);
     font-size: 10px;
   }
   .legend i {
     display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    margin-right: 4px;
+    width: 10px;
+    height: 3px;
+    border-radius: 1px;
+    margin-right: 5px;
     vertical-align: middle;
   }
 </style>
@@ -390,7 +460,13 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       <span class="val" id="memVal">—</span>
     </div>
     <div class="card-body">
+      <div class="mem-break" id="memBreak"></div>
       <div class="plot"><canvas class="main" id="mem"></canvas></div>
+      <div class="legend">
+        <span><i style="background:var(--accent)"></i>used</span>
+        <span><i style="background:var(--accent5)"></i>cache</span>
+        <span><i style="background:var(--accent2)"></i>free</span>
+      </div>
     </div>
   </section>
 
@@ -404,9 +480,11 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       <div class="dev-meta" id="diskMeta"></div>
       <div class="plot"><canvas class="main" id="disk"></canvas></div>
       <div class="legend">
-        <span><i style="background:var(--accent5)"></i>read</span>
-        <span><i style="background:var(--accent)"></i>write</span>
+        <span><i style="background:var(--accent)"></i>read</span>
+        <span><i style="background:var(--accent3)"></i>write</span>
       </div>
+      <div class="dev-meta" style="margin-top:8px">Mounts (free / used)</div>
+      <div class="mount-list" id="mountList"></div>
     </div>
   </section>
 
@@ -416,6 +494,7 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       <span class="val" id="gpuVal">—</span>
     </div>
     <div class="card-body">
+      <div class="cuda-row" id="cudaRow"></div>
       <div id="gpuList"></div>
     </div>
   </section>
@@ -430,11 +509,15 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       <span class="val" id="procVal">—</span>
     </div>
     <div class="card-body">
+      <div class="dev-meta">Top by CPU — click Attach</div>
+      <div class="proc-list" id="topProcList"></div>
+      <div class="dev-meta" id="gpuProcLabel" style="display:none">NVIDIA GPU processes</div>
+      <div class="proc-list" id="gpuProcList"></div>
       <div class="dev-meta" id="procMeta">Not attached — track CPU / RAM of a debuggee or any PID</div>
       <div class="plot" id="procPlot"><canvas class="main" id="proc"></canvas></div>
       <div class="legend">
-        <span><i style="background:var(--vscode-charts-purple, #b180d7)"></i>cpu %</span>
-        <span><i style="background:var(--accent2)"></i>mem (scaled)</span>
+        <span><i style="background:var(--accent)"></i>cpu %</span>
+        <span><i style="background:var(--accent3)"></i>mem (scaled)</span>
       </div>
     </div>
   </section>
@@ -448,7 +531,7 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       <div class="plot"><canvas class="main" id="net"></canvas></div>
       <div class="legend">
         <span><i style="background:var(--accent)"></i>down</span>
-        <span><i style="background:var(--accent4)"></i>up</span>
+        <span><i style="background:var(--accent3)"></i>up</span>
       </div>
     </div>
   </section>
@@ -463,6 +546,7 @@ let logicalLayout = null;
 let hoverCore = -1;
 let selectedDisk = 0;
 let gpuReady = 0;
+let cudaSig = '';
 
 function windowMinutes(win) {
   if (win === '1m') return 1;
@@ -596,15 +680,17 @@ function fillSmooth(ctx, pts, w, h, color) {
   }
   ctx.lineTo(pts[pts.length - 1].x, h);
   ctx.closePath();
-  const grad = ctx.createLinearGradient(0, 0, 0, h);
-  grad.addColorStop(0, hexAlpha(color, 0.28));
-  grad.addColorStop(1, hexAlpha(color, 0.02));
+  /* solid teal silhouette like ops dashboards */
+  const grad = ctx.createLinearGradient(0, Math.min(...pts.map(p => p.y)), 0, h);
+  grad.addColorStop(0, hexAlpha(color, 0.78));
+  grad.addColorStop(0.55, hexAlpha(color, 0.55));
+  grad.addColorStop(1, hexAlpha(color, 0.12));
   ctx.fillStyle = grad;
   ctx.fill();
 }
 
 function hexAlpha(c, a) {
-  c = (c || '#4ea1ff').trim();
+  c = (c || '#2ab5a8').trim();
   if (c.startsWith('#')) {
     let h = c.slice(1);
     if (h.length === 3) h = h.split('').map(x => x + x).join('');
@@ -620,12 +706,10 @@ function hexAlpha(c, a) {
 }
 
 function drawGrid(ctx, w, h, pad, lines) {
-  const n = lines == null ? 3 : lines;
+  const n = lines == null ? 0 : lines;
   if (n <= 0) return;
-  const grid = cssVar('--line', 'rgba(127,127,127,.25)');
-  ctx.strokeStyle = grid;
+  ctx.strokeStyle = 'rgba(42,181,168,0.12)';
   ctx.lineWidth = 1;
-  ctx.globalAlpha = 0.35;
   for (let i = 1; i <= n; i++) {
     const y = pad + ((h - pad * 2) / (n + 1)) * i;
     ctx.beginPath();
@@ -633,7 +717,6 @@ function drawGrid(ctx, w, h, pad, lines) {
     ctx.lineTo(w - pad, y);
     ctx.stroke();
   }
-  ctx.globalAlpha = 1;
 }
 
 function chart(canvas, values, maxY, color, opts) {
@@ -641,22 +724,22 @@ function chart(canvas, values, maxY, color, opts) {
   const { w, h } = size(canvas);
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, w, h);
-  const pad = (opts.pad || 6) * dpr();
-  drawGrid(ctx, w, h, pad, opts.grid == null ? 3 : opts.grid);
+  const pad = (opts.pad || 4) * dpr();
+  drawGrid(ctx, w, h, pad, opts.grid == null ? 0 : opts.grid);
   if (!values.length) return;
-  const smoothed = ema(values, opts.alpha == null ? 0.38 : opts.alpha);
+  const smoothed = ema(values, opts.alpha == null ? 0.32 : opts.alpha);
   const pts = toXY(smoothed, maxY, w, h, pad);
   if (!opts.noFill) fillSmooth(ctx, pts, w, h, color);
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.strokeStyle = color;
-  ctx.lineWidth = (opts.lw || 2) * dpr();
+  ctx.lineWidth = (opts.lw || 1.6) * dpr();
   strokeSmooth(ctx, pts);
   if (!opts.noDot) {
     const tip = pts[pts.length - 1];
     ctx.beginPath();
     ctx.fillStyle = color;
-    ctx.arc(tip.x, tip.y, 2.2 * dpr(), 0, Math.PI * 2);
+    ctx.arc(tip.x, tip.y, 2 * dpr(), 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -665,16 +748,15 @@ function dualChart(canvas, a, b, maxY, ca, cb) {
   const { w, h } = size(canvas);
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, w, h);
-  const pad = 6 * dpr();
-  drawGrid(ctx, w, h, pad, 3);
+  const pad = 4 * dpr();
   if (!a.length) return;
-  const aPts = toXY(ema(a, 0.4), maxY, w, h, pad);
-  const bPts = toXY(ema(b, 0.4), maxY, w, h, pad);
+  const aPts = toXY(ema(a, 0.32), maxY, w, h, pad);
+  const bPts = toXY(ema(b, 0.32), maxY, w, h, pad);
   fillSmooth(ctx, aPts, w, h, ca);
   ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-  ctx.strokeStyle = ca; ctx.lineWidth = 2 * dpr(); strokeSmooth(ctx, aPts);
-  fillSmooth(ctx, bPts, w, h, cb);
-  ctx.strokeStyle = cb; strokeSmooth(ctx, bPts);
+  ctx.strokeStyle = ca; ctx.lineWidth = 1.5 * dpr(); strokeSmooth(ctx, aPts);
+  /* second series: crisp line only — overlay like auth rate charts */
+  ctx.strokeStyle = cb; ctx.lineWidth = 1.35 * dpr(); strokeSmooth(ctx, bPts);
 }
 
 function fillSeries(series) {
@@ -690,28 +772,138 @@ function fillSeries(series) {
   });
 }
 
+/** Stacked area: used + cache + free ≈ 100% — teal shade ladder */
+function stackedMemChart(canvas, used, cache, free, cU, cC, cF) {
+  const { w, h } = size(canvas);
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, w, h);
+  const pad = 4 * dpr();
+  const n = Math.max(used.length, cache.length, free.length);
+  if (!n) return;
+  const u = ema(used.map(v => v || 0), 0.28);
+  const c = ema(cache.map(v => v || 0), 0.28);
+  const f = ema(free.map(v => v || 0), 0.28);
+  const yOf = (pct) => pad + (1 - pct / 100) * (h - pad * 2);
+  const xOf = (i) => pad + (i / Math.max(1, n - 1)) * (w - pad * 2);
+  function band(bottom, top, color, alpha) {
+    ctx.beginPath();
+    for (let i = 0; i < n; i++) ctx.lineTo(xOf(i), yOf(top[i]));
+    for (let i = n - 1; i >= 0; i--) ctx.lineTo(xOf(i), yOf(bottom[i]));
+    ctx.closePath();
+    ctx.fillStyle = hexAlpha(color, alpha);
+    ctx.fill();
+  }
+  const z = u.map(() => 0);
+  const s1 = u.map((v) => v);
+  const s2 = u.map((v, i) => v + c[i]);
+  const s3 = u.map((v, i) => Math.min(100, v + c[i] + f[i]));
+  band(z, s1, cU, 0.82);
+  band(s1, s2, cC, 0.55);
+  band(s2, s3, cF, 0.28);
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = 1.25 * dpr();
+  [[s1, cU], [s2, cC]].forEach(([series, col]) => {
+    ctx.beginPath();
+    ctx.strokeStyle = col;
+    for (let i = 0; i < n; i++) {
+      const x = xOf(i), y = yOf(series[i]);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  });
+}
+
+function renderMounts(mounts) {
+  const el = document.getElementById('mountList');
+  if (!el) return;
+  if (!(mounts || []).length) {
+    el.innerHTML = '<div class="dev-meta">No mounts reported</div>';
+    return;
+  }
+  el.innerHTML = mounts.map(m => {
+    const free = Math.max(0, m.sizeGb - m.usedGb);
+    const hot = m.usePct >= 90 ? ' hot' : '';
+    return '<div class="mount-row"><div>' +
+      '<div title="' + m.mount + '">' + m.mount + ' <span style="color:var(--muted)">' + m.fs + '</span></div>' +
+      '<div class="bar-track"><div class="bar-fill' + hot + '" style="width:' + m.usePct + '%"></div></div>' +
+      '</div><div>' + free.toFixed(1) + 'G free · ' + m.usedGb.toFixed(1) + '/' + m.sizeGb.toFixed(1) + 'G</div></div>';
+  }).join('');
+}
+
+function renderProcTable(elId, list, kind) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  if (!(list || []).length) {
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = list.slice(0, 10).map(p => {
+    const extra = kind === 'gpu'
+      ? (p.gpuMemMb != null ? p.gpuMemMb + 'M vram' : 'gpu')
+      : (p.cpu + '% · ' + Math.round(p.memMb) + 'M');
+    return '<div class="proc-row"><div title="' + p.name + '">' + p.name +
+      ' <span style="color:var(--muted)">#' + p.pid + '</span></div><div>' + extra +
+      '</div><button type="button" class="btn-mini" data-pid="' + p.pid + '">Attach</button></div>';
+  }).join('');
+  el.querySelectorAll('button[data-pid]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      vscodeApi.postMessage({ type: 'attachPid', pid: Number(btn.getAttribute('data-pid')) });
+    });
+  });
+}
+
+function renderCuda(gpus) {
+  const row = document.getElementById('cudaRow');
+  if (!row) return;
+  if (!(gpus || []).length) {
+    row.innerHTML = '';
+    cudaSig = '';
+    return;
+  }
+  const sig = gpus.map((g, i) => i + ':' + g.name).join('|');
+  if (sig === cudaSig && row.children.length) return;
+  const prev = new Set(
+    [...row.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value)
+  );
+  cudaSig = sig;
+  const boxes = gpus.map((g, i) => {
+    const checked = prev.size ? prev.has(String(i)) : true;
+    return '<label><input type="checkbox" value="' + i + '"' +
+      (checked ? ' checked' : '') + '/> ' + i + ' · ' + g.name + '</label>';
+  }).join('');
+  row.innerHTML = boxes +
+    '<button type="button" class="btn-mini" id="cudaCopy">Copy CUDA_VISIBLE_DEVICES</button>';
+  const copyBtn = document.getElementById('cudaCopy');
+  if (copyBtn) {
+    copyBtn.addEventListener('click', () => {
+      const ids = [...row.querySelectorAll('input[type=checkbox]:checked')]
+        .map(c => Number(c.value));
+      vscodeApi.postMessage({ type: 'copyCuda', ids });
+    });
+  }
+}
+
 /** util % + VRAM % + temp °C */
 function gpuChart(canvas, util, memPct, temp, colorU, colorM, colorT) {
   const { w, h } = size(canvas);
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, w, h);
-  const pad = 5 * dpr();
-  drawGrid(ctx, w, h, pad, 2);
+  const pad = 4 * dpr();
   if (!util.length) return;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  const uPts = toXY(ema(util, 0.38), 100, w, h, pad);
+  const uPts = toXY(ema(util, 0.32), 100, w, h, pad);
   fillSmooth(ctx, uPts, w, h, colorU);
-  ctx.strokeStyle = colorU; ctx.lineWidth = 1.8 * dpr(); strokeSmooth(ctx, uPts);
+  ctx.strokeStyle = colorU; ctx.lineWidth = 1.5 * dpr(); strokeSmooth(ctx, uPts);
   if (memPct.some(v => v != null)) {
-    const mPts = toXY(ema(fillSeries(memPct), 0.38), 100, w, h, pad);
-    ctx.strokeStyle = colorM; ctx.lineWidth = 1.5 * dpr(); strokeSmooth(ctx, mPts);
+    const mPts = toXY(ema(fillSeries(memPct), 0.32), 100, w, h, pad);
+    ctx.strokeStyle = colorM; ctx.lineWidth = 1.35 * dpr(); strokeSmooth(ctx, mPts);
   }
   if (temp.some(v => v != null)) {
     const filled = fillSeries(temp);
     const maxT = Math.max(80, ...filled) * 1.05;
-    const tPts = toXY(ema(filled, 0.35), maxT, w, h, pad);
-    ctx.strokeStyle = colorT; ctx.lineWidth = 1.4 * dpr(); strokeSmooth(ctx, tPts);
+    const tPts = toXY(ema(filled, 0.3), maxT, w, h, pad);
+    ctx.strokeStyle = colorT; ctx.lineWidth = 1.2 * dpr(); strokeSmooth(ctx, tPts);
   }
 }
 
@@ -729,8 +921,8 @@ function ensureGpuCards(n) {
       '<b id="gpuLive' + i + '">—</b></div>' +
       '<div class="plot"><canvas class="main" id="gpuC' + i + '"></canvas></div>' +
       '<div class="legend">' +
-      '<span><i style="background:var(--accent3)"></i>util</span>' +
-      '<span><i style="background:var(--accent2)"></i>vram</span>' +
+      '<span><i style="background:var(--accent)"></i>util</span>' +
+      '<span><i style="background:var(--accent3)"></i>vram</span>' +
       '<span><i style="background:var(--accent4)"></i>temp</span>' +
       '</div>';
     list.appendChild(el);
@@ -946,29 +1138,43 @@ function paint(msg) {
   if (msg.timeWindow) setWinUI(msg.timeWindow);
   const pts = filterWindow(msg.points || [], timeWindow);
 
-  const accent = cssVar('--accent', '#4ea1ff');
-  const a2 = cssVar('--accent2', '#73c991');
-  const a3 = cssVar('--accent3', '#d7ba7d');
-  const a4 = cssVar('--accent4', '#f14c4c');
-  const a5 = cssVar('--accent5', '#ce9178');
+  const accent = cssVar('--accent', '#2ab5a8');
+  const a2 = cssVar('--accent2', '#157a74');
+  const a3 = cssVar('--accent3', '#5ed4c8');
+  const a4 = cssVar('--accent4', '#c9785c');
+  const a5 = cssVar('--accent5', '#1f8f8a');
 
   if (live) {
     document.getElementById('meta').textContent =
       live.platform + (live.gpuLabel ? ' · ' + live.gpuLabel : '') +
       ' · window ' + timeWindow;
     document.getElementById('hCpu').innerHTML = live.cpuTotal + '%<small>cpu</small>';
-    document.getElementById('hMem').innerHTML = live.memPct.toFixed(0) + '%<small>ram</small>';
+    const loadBits =
+      live.loadAvg && live.loadAvg.length
+        ? ' · load ' + live.loadAvg.map(x => x.toFixed(2)).join(' ')
+        : '';
+    document.getElementById('hMem').innerHTML =
+      live.memPct.toFixed(0) + '%<small>used</small>';
     document.getElementById('hDisk').innerHTML =
       fmtRate(live.diskReadKBs + live.diskWriteKBs) + '/s<small>disk</small>';
     const gpuHero =
       (live.gpuPct == null ? '—' : live.gpuPct + '%') +
-      (live.gpuTemp != null ? ' ' + live.gpuTemp + '°' : '');
+      (live.gpuTemp != null ? ' ' + live.gpuTemp + '°' : '') +
+      (live.gpuPowerW != null ? ' ' + Math.round(live.gpuPowerW) + 'W' : '');
     document.getElementById('hGpu').innerHTML = gpuHero + '<small>gpu</small>';
 
     document.getElementById('cpuVal').textContent =
-      live.cpuTotal + '% · ' + (live.cpuCores || []).length + ' logical';
+      live.cpuTotal + '% · ' + (live.cpuCores || []).length + ' logical' + loadBits;
     document.getElementById('memVal').textContent =
-      live.memUsedGb.toFixed(1) + ' / ' + live.memTotalGb.toFixed(1) + ' GB';
+      live.memAppGb.toFixed(1) + ' used / ' + live.memTotalGb.toFixed(1) + ' GB';
+    const breakEl = document.getElementById('memBreak');
+    if (breakEl) {
+      breakEl.innerHTML =
+        '<span><b style="color:var(--accent)">' + live.memAppGb.toFixed(1) + 'G</b> used</span>' +
+        '<span><b style="color:var(--accent5)">' + live.memCacheGb.toFixed(1) + 'G</b> cache</span>' +
+        '<span><b style="color:var(--accent2)">' + live.memFreeGb.toFixed(1) + 'G</b> free</span>' +
+        '<span style="color:var(--muted)">avail ' + live.memAvailableGb.toFixed(1) + 'G</span>';
+    }
 
     const disks = live.disks || [];
     if (selectedDisk >= disks.length) selectedDisk = 0;
@@ -993,6 +1199,7 @@ function paint(msg) {
       document.getElementById('diskMeta').textContent = '';
       document.getElementById('diskVal').textContent = '—';
     }
+    renderMounts(live.mounts || []);
 
     const gpus = live.gpus || [];
     const vramBits = gpus
@@ -1002,7 +1209,9 @@ function paint(msg) {
       gpus.length + ' GPU' +
       (live.gpuPct != null ? ' · ' + live.gpuPct + '%' : '') +
       (live.gpuTemp != null ? ' · ' + live.gpuTemp + '°' : '') +
+      (live.gpuPowerW != null ? ' · ' + Math.round(live.gpuPowerW) + 'W' : '') +
       (vramBits.length ? ' · ' + vramBits[0] + (vramBits.length > 1 ? '…' : '') : '');
+    renderCuda(gpus);
     ensureGpuCards(gpus.length);
     gpus.forEach((g, i) => {
       const nameEl = document.getElementById('gpuName' + i);
@@ -1015,9 +1224,20 @@ function paint(msg) {
           g.memUsedMb != null && g.memTotalMb
             ? ' · ' + fmtVram(g.memUsedMb) + '/' + fmtVram(g.memTotalMb)
             : '';
-        liveEl.textContent = u + t + m;
+        const pw =
+          g.powerW != null
+            ? ' · ' + Math.round(g.powerW) + 'W' +
+              (g.powerLimitW != null ? '/' + Math.round(g.powerLimitW) : '')
+            : '';
+        liveEl.textContent = u + t + m + pw;
       }
     });
+
+    renderProcTable('topProcList', live.topProcs || [], 'cpu');
+    const gpuProcs = live.gpuProcs || [];
+    const gpl = document.getElementById('gpuProcLabel');
+    if (gpl) gpl.style.display = gpuProcs.length ? '' : 'none';
+    renderProcTable('gpuProcList', gpuProcs, 'gpu');
 
     document.getElementById('netVal').textContent =
       '↓ ' + fmtRate(live.netDownKBs) + '  ↑ ' + fmtRate(live.netUpKBs);
@@ -1038,7 +1258,10 @@ function paint(msg) {
     chart(document.getElementById('cpu'), pts.map(p => p.cpu), 100, accent);
   }
 
-  chart(document.getElementById('mem'), pts.map(p => p.mem), 100, a2);
+  const memApp = pts.map(p => p.memApp != null ? p.memApp : p.mem);
+  const memCache = pts.map(p => p.memCache != null ? p.memCache : 0);
+  const memFree = pts.map(p => p.memFree != null ? p.memFree : Math.max(0, 100 - (p.mem || 0)));
+  stackedMemChart(document.getElementById('mem'), memApp, memCache, memFree, accent, a5, a2);
 
   const nGpu = (live && live.gpus && live.gpus.length)
     || (pts[0] && pts[0].gpuUtils && pts[0].gpuUtils.length)
@@ -1054,15 +1277,15 @@ function paint(msg) {
       (p.gpuMemPct && p.gpuMemPct[i] != null) ? p.gpuMemPct[i] : null
     );
     const temp = pts.map(p => (p.gpuTemps && p.gpuTemps[i] != null) ? p.gpuTemps[i] : null);
-    gpuChart(c, util, memPct, temp, a3, a2, a4);
+    gpuChart(c, util, memPct, temp, accent, a3, a4);
   }
 
   const diskR = pts.map(p => (p.diskReads && p.diskReads[selectedDisk]) || 0);
   const diskW = pts.map(p => (p.diskWrites && p.diskWrites[selectedDisk]) || 0);
-  dualChart(document.getElementById('disk'), diskR, diskW, Math.max(1, ...diskR, ...diskW), a5, accent);
+  dualChart(document.getElementById('disk'), diskR, diskW, Math.max(1, ...diskR, ...diskW), accent, a3);
 
   const proc = live && live.process && live.process.alive ? live.process : null;
-  const procColor = cssVar('--vscode-charts-purple', '#b180d7');
+  const procColor = accent;
   if (proc) {
     document.getElementById('procMeta').textContent =
       proc.name + ' · PID ' + proc.pid +
@@ -1077,7 +1300,7 @@ function paint(msg) {
     // mem scaled onto same 0–maxCpu axis visually via dualScale: reuse utilTemp style
     const maxCpu = Math.max(100, ...pCpu);
     const memAsCpu = pMem.map(m => (m / maxMem) * maxCpu);
-    dualChart(document.getElementById('proc'), pCpu, memAsCpu, maxCpu, procColor, a2);
+    dualChart(document.getElementById('proc'), pCpu, memAsCpu, maxCpu, procColor, a3);
   } else {
     document.getElementById('procMeta').textContent =
       'Not attached — Attach button / status bar / command palette';
@@ -1087,7 +1310,7 @@ function paint(msg) {
 
   const down = pts.map(p => p.down);
   const up = pts.map(p => p.up);
-  dualChart(document.getElementById('net'), down, up, Math.max(1, ...down, ...up), accent, a4);
+  dualChart(document.getElementById('net'), down, up, Math.max(1, ...down, ...up), accent, a3);
 }
 
 let lastMsg = null;

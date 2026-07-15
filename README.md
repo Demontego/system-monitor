@@ -6,13 +6,14 @@ Live system resources in the status bar and a Task Manager–style charts panel.
 
 ## Features
 
-- **Status bar:** CPU %, RAM, disk R/W, GPU %, network ↓↑
+- **Status bar:** CPU %, RAM, disk R/W, GPU %/W, network ↓↑ — pick which via command
 - **Sidebar panel:** smooth charts for CPU, memory, disk, GPU, network
+- **RAM:** used / cache / free (+ available) with stacked history
 - **CPU:** Total utilization **or** Logical processors mosaic (scales to many cores)
-- **Multi-GPU:** util + temperature for every GPU at once
-- **Multi-disk:** pick a disk and watch its R/W graph
+- **Multi-GPU:** util + temp + VRAM + power; copy `CUDA_VISIBLE_DEVICES`
+- **Disk:** per-disk R/W + mount free/used
 - **Time windows:** 1m / 5m / 30m (global switch for all charts)
-- **Process attach:** track CPU / RAM of a PID (debuggee or any process)
+- **Process attach:** top CPU list + NVIDIA GPU apps → Attach
 - Works in **VS Code** and **Cursor**
 
 ## Install
@@ -48,10 +49,7 @@ Command Palette → **Extensions: Install from VSIX…**
 | `systemMonitor.timeWindow` | `5m` | `1m` / `5m` / `30m` |
 | `systemMonitor.autoAttachDebug` | `true` | Auto-attach on debug start |
 | `systemMonitor.detachOnDebugEnd` | `false` | Detach when debug ends |
-| `systemMonitor.showProcess` | `true` | Status bar attach control |
-| `systemMonitor.showGpu` | `true` | Status bar GPU |
-| `systemMonitor.showDisk` | `true` | Status bar disk |
-| `systemMonitor.showNetwork` | `true` | Status bar network |
+| `systemMonitor.showCpu` / `showMem` / `showProcess` / `showGpu` / `showDisk` / `showNetwork` | `true` | Status bar toggles (or command **Configure Status Bar**) |
 
 ## Platform notes
 

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.4.0
+
+- RAM breakdown: **used / cache / free** (+ available) with stacked chart
+- GPU power draw (W) via nvidia-smi; copy `CUDA_VISIBLE_DEVICES` from panel
+- Disk mounts: free/used with filters for virtual filesystems
+- Top processes + NVIDIA compute apps → Attach from panel
+- Status bar metric picker (`Configure Status Bar`); `showCpu` / `showMem` settings
+- Load average in CPU tooltip (Unix)
+- Panel visual: teal silhouette charts, minimal grid, dashboard-style titles
+
 ## 1.3.0
 
 - Collapsible panels (click section header; state persisted)

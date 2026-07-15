@@ -2,7 +2,7 @@
   "name": "system-monitor",
   "displayName": "System Monitor — CPU RAM GPU Disk",
   "description": "Live CPU (per-core), RAM, multi-GPU, multi-disk and network charts in the sidebar — Task Manager style. Windows, macOS, Linux, WSL.",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "publisher": "demontego",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -82,6 +82,14 @@
       {
         "command": "systemMonitor.detachProcess",
         "title": "System Monitor: Detach Process"
+      },
+      {
+        "command": "systemMonitor.configureStatusBar",
+        "title": "System Monitor: Configure Status Bar"
+      },
+      {
+        "command": "systemMonitor.copyCudaDevices",
+        "title": "System Monitor: Copy CUDA_VISIBLE_DEVICES (all GPUs)"
       }
     ],
     "configuration": {
@@ -92,6 +100,16 @@
           "default": 2000,
           "minimum": 500,
           "description": "Poll interval in milliseconds"
+        },
+        "systemMonitor.showCpu": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show CPU in the status bar"
+        },
+        "systemMonitor.showMem": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show memory in the status bar"
         },
         "systemMonitor.showGpu": {
           "type": "boolean",

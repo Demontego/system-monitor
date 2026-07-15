@@ -12,6 +12,7 @@ export type ProcessPick = {
   name: string;
   cpu: number;
   memMb: number;
+  gpuMemMb?: number | null;
 };
 
 export type ProcessStats = {
@@ -97,7 +98,7 @@ async function sampleLinux(pid: number): Promise<ProcessStats | null> {
       fs.readFile(`/proc/${pid}/comm`, "utf8").catch(() => String(pid)),
     ]);
     const parts = stat.slice(stat.indexOf(")") + 2).trim().split(/\s+/);
-    // utime=11 stime=12 (0-based after comm) ó after ") " fields: state ppid ... utime stime at index 11,12 from post-comm? 
+    // utime=11 stime=12 (0-based after comm) ù after ") " fields: state ppid ... utime stime at index 11,12 from post-comm? 
     // /proc/pid/stat: after comm) field 12=utime, 13=stime (1-based field numbers in man = index 11,12 in 0-based after split of post-paren)
     const utime = parseInt(parts[11] || "0", 10) || 0;
     const stime = parseInt(parts[12] || "0", 10) || 0;
@@ -202,6 +203,56 @@ export async function sampleProcess(pid: number): Promise<ProcessStats | null> {
   if (platform === "win32") return sampleWindows(pid);
   if (platform === "darwin") return sampleDarwin(pid);
   return sampleLinux(pid).catch(() => null);
+}
+
+/** NVIDIA processes currently holding VRAM */
+export async function listGpuComputeApps(): Promise<ProcessPick[]> {
+  const bins =
+    os.platform() === "win32"
+      ? [
+          "nvidia-smi.exe",
+          `${process.env.SystemRoot || "C:\\Windows"}\\System32\\nvidia-smi.exe`,
+        ]
+      : ["nvidia-smi", "/usr/lib/wsl/lib/nvidia-smi", "/usr/bin/nvidia-smi"];
+  const args = [
+    "--query-compute-apps=pid,process_name,used_gpu_memory",
+    "--format=csv,noheader,nounits",
+  ];
+  const env = {
+    ...process.env,
+    PATH:
+      os.platform() === "win32"
+        ? process.env.PATH || ""
+        : `${process.env.PATH || ""}:/usr/lib/wsl/lib:/usr/bin`,
+  };
+  for (const bin of bins) {
+    try {
+      const { stdout } = await execFileAsync(bin, args, {
+        timeout: 3000,
+        windowsHide: true,
+        env,
+      });
+      const out: ProcessPick[] = [];
+      for (const line of stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+        const parts = line.split(",").map((p) => p.trim());
+        const pid = parseInt(parts[0] || "0", 10);
+        if (!pid) continue;
+        const name = parts[1] || `pid-${pid}`;
+        const gpuMem = parseFloat(parts[2] || "");
+        out.push({
+          pid,
+          name,
+          cpu: 0,
+          memMb: 0,
+          gpuMemMb: Number.isNaN(gpuMem) ? null : Math.round(gpuMem),
+        });
+      }
+      if (out.length) return out;
+    } catch {
+      /* next */
+    }
+  }
+  return [];
 }
 
 export function matchDebugProcess(

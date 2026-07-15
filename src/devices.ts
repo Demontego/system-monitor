@@ -14,6 +14,8 @@ export type GpuInfo = {
   /** VRAM used / total in MiB */
   memUsedMb: number | null;
   memTotalMb: number | null;
+  powerW: number | null;
+  powerLimitW: number | null;
 };
 
 export type DiskInfo = {
@@ -23,6 +25,14 @@ export type DiskInfo = {
   readKBs: number;
   writeKBs: number;
   busyPct: number | null;
+};
+
+export type MountInfo = {
+  mount: string;
+  fs: string;
+  sizeGb: number;
+  usedGb: number;
+  usePct: number;
 };
 
 type ByteSample = { r: number; w: number; at: number };
@@ -89,7 +99,16 @@ export function collectGpusFromControllers(graphics: { controllers?: Ctrl[] }): 
         : null;
     const memUsedMb = parseMemMb(c.memoryUsed);
     const memTotalMb = parseMemMb(c.memoryTotal ?? c.vram);
-    return { id: `gpu-${i}`, name, util, temp, memUsedMb, memTotalMb };
+    return {
+      id: `gpu-${i}`,
+      name,
+      util,
+      temp,
+      memUsedMb,
+      memTotalMb,
+      powerW: null,
+      powerLimitW: null,
+    };
   });
 }
 
@@ -104,7 +123,7 @@ async function gpusFromNvidiaSmi(): Promise<GpuInfo[]> {
       : ["nvidia-smi", "/usr/lib/wsl/lib/nvidia-smi", "/usr/bin/nvidia-smi"];
 
   const args = [
-    "--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total",
+    "--query-gpu=name,utilization.gpu,temperature.gpu,memory.used,memory.total,power.draw,power.limit",
     "--format=csv,noheader,nounits",
   ];
 
@@ -146,6 +165,8 @@ async function gpusFromNvidiaSmi(): Promise<GpuInfo[]> {
           temp: num(parts[2]),
           memUsedMb: num(parts[3]),
           memTotalMb: num(parts[4]),
+          powerW: num(parts[5]),
+          powerLimitW: num(parts[6]),
         });
       }
       if (gpus.length) return gpus;
@@ -315,4 +336,57 @@ export async function collectDisks(): Promise<DiskInfo[]> {
     if (list.length) return list;
   }
   return disksFallbackAggregate();
+}
+
+const SKIP_FS = new Set([
+  "tmpfs",
+  "devtmpfs",
+  "proc",
+  "sysfs",
+  "cgroup",
+  "cgroup2",
+  "overlay",
+  "squashfs",
+  "ramfs",
+  "devpts",
+  "securityfs",
+  "pstore",
+  "bpf",
+  "tracefs",
+  "debugfs",
+  "fusectl",
+  "configfs",
+  "hugetlbfs",
+  "mqueue",
+  "rpc_pipefs",
+  "binfmt_misc",
+  "autofs",
+]);
+
+const SKIP_MOUNT_PREFIX = ["/snap", "/boot/efi", "/var/lib/docker", "/System/Volumes"];
+
+export async function collectMounts(): Promise<MountInfo[]> {
+  try {
+    const list = await si.fsSize();
+    return (list || [])
+      .filter((m) => {
+        const fs = String(m.type || "").toLowerCase();
+        const mount = String(m.mount || "");
+        if (!mount || !m.size) return false;
+        if (SKIP_FS.has(fs)) return false;
+        if (SKIP_MOUNT_PREFIX.some((p) => mount === p || mount.startsWith(p + "/"))) return false;
+        return true;
+      })
+      .map((m) => ({
+        mount: m.mount,
+        fs: String(m.type || ""),
+        sizeGb: m.size / 1024 ** 3,
+        usedGb: (m.used || 0) / 1024 ** 3,
+        usePct: Math.min(100, Math.round(m.use || (m.size ? ((m.used || 0) / m.size) * 100 : 0))),
+      }))
+      .sort((a, b) => b.usePct - a.usePct)
+      .slice(0, 12);
+  } catch {
+    return [];
+  }
 }

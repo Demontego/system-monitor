@@ -42,20 +42,52 @@ function timeWindow(): TimeWindow {
 }
 
 function paint(s: Snapshot) {
-  cpuItem.text = `$(pulse) ${s.cpuTotal}%`;
-  cpuItem.tooltip =
-    cpuMode() === "logical"
-      ? `CPU ${s.cpuTotal}% · logical charts in panel\n${s.cpuCores.map((v, i) => `c${i}: ${v}%`).join(" | ")}`
-      : `CPU ${s.cpuTotal}% · total chart in panel\nClick: toggle Total / Logical graphs`;
+  if (cfg().get<boolean>("showCpu", true)) {
+    cpuItem.show();
+    cpuItem.text = `$(pulse) ${s.cpuTotal}%`;
+    const load =
+      s.loadAvg != null
+        ? `\nload ${s.loadAvg.map((x) => x.toFixed(2)).join("  ")}`
+        : "";
+    cpuItem.tooltip =
+      (cpuMode() === "logical"
+        ? `CPU ${s.cpuTotal}% · logical charts in panel\n${s.cpuCores.map((v, i) => `c${i}: ${v}%`).join(" | ")}`
+        : `CPU ${s.cpuTotal}% · total chart in panel\nClick: toggle Total / Logical graphs`) +
+      load;
+  } else {
+    cpuItem.hide();
+  }
 
-  memItem.text = `$(database) ${s.memUsedGb.toFixed(1)}/${s.memTotalGb.toFixed(1)}G`;
-  memItem.tooltip = `RAM ${s.memPct.toFixed(0)}%`;
+  if (cfg().get<boolean>("showMem", true)) {
+    memItem.show();
+    memItem.text = `$(database) ${s.memAppGb.toFixed(1)}/${s.memTotalGb.toFixed(1)}G`;
+    memItem.tooltip = [
+      `Used ${s.memAppGb.toFixed(2)} GB (${s.memPct.toFixed(0)}%)`,
+      `Cache ${s.memCacheGb.toFixed(2)} GB`,
+      `Free ${s.memFreeGb.toFixed(2)} GB`,
+      `Available ${s.memAvailableGb.toFixed(2)} GB`,
+      `Total ${s.memTotalGb.toFixed(2)} GB`,
+    ].join("\n");
+  } else {
+    memItem.hide();
+  }
 
   if (cfg().get<boolean>("showDisk", true)) {
     diskItem.show();
     diskItem.text = `$(disc) R ${formatRate(s.diskReadKBs)} W ${formatRate(s.diskWriteKBs)}`;
+    const mountTip =
+      s.mounts.length > 0
+        ? "\n\n" +
+          s.mounts
+            .slice(0, 6)
+            .map(
+              (m) =>
+                `${m.mount}: ${(m.sizeGb - m.usedGb).toFixed(1)}G free (${m.usePct}%)`,
+            )
+            .join("\n")
+        : "";
     diskItem.tooltip =
-      s.disks.length <= 1
+      (s.disks.length <= 1
         ? "Disk read / write"
         : s.disks
             .map(
@@ -63,7 +95,7 @@ function paint(s: Snapshot) {
                 `${d.name}: R ${formatRate(d.readKBs)} W ${formatRate(d.writeKBs)}` +
                 (d.busyPct != null ? ` (${d.busyPct}%)` : ""),
             )
-            .join("\n");
+            .join("\n")) + mountTip;
   } else {
     diskItem.hide();
   }
@@ -72,12 +104,13 @@ function paint(s: Snapshot) {
     gpuItem.show();
     const util = s.gpuPct != null ? `${s.gpuPct}%` : "—";
     const temp = s.gpuTemp != null ? ` ${s.gpuTemp}°` : "";
+    const power = s.gpuPowerW != null ? ` ${Math.round(s.gpuPowerW)}W` : "";
     const hot = [...s.gpus].sort((a, b) => (b.util ?? 0) - (a.util ?? 0))[0];
     const vram =
       hot?.memUsedMb != null && hot.memTotalMb
         ? ` ${(hot.memUsedMb / 1024).toFixed(1)}/${(hot.memTotalMb / 1024).toFixed(0)}G`
         : "";
-    gpuItem.text = `$(circuit-board) ${util}${temp}${vram}`;
+    gpuItem.text = `$(circuit-board) ${util}${temp}${power}${vram}`;
     gpuItem.tooltip =
       s.gpus.length === 0
         ? "GPU n/a"
@@ -89,7 +122,12 @@ function paint(s: Snapshot) {
                 g.memUsedMb != null && g.memTotalMb
                   ? ` · VRAM ${(g.memUsedMb / 1024).toFixed(1)}/${(g.memTotalMb / 1024).toFixed(1)} GB`
                   : "";
-              return `${g.name}: ${u}${t}${m}`;
+              const pw =
+                g.powerW != null
+                  ? ` · ${Math.round(g.powerW)}W` +
+                    (g.powerLimitW != null ? `/${Math.round(g.powerLimitW)}W` : "")
+                  : "";
+              return `${g.name}: ${u}${t}${m}${pw}`;
             })
             .join("\n");
   } else {
@@ -184,6 +222,14 @@ function detachProcess(notify = true) {
   void tick();
 }
 
+async function attachByPid(pid: number) {
+  const picks = await listProcessPicks();
+  const hit =
+    picks.find((p) => p.pid === pid) ??
+    ({ pid, name: `pid-${pid}`, cpu: 0, memMb: 0 } satisfies ProcessPick);
+  attachProcess(hit);
+}
+
 async function pickAndAttach() {
   const picks = await listProcessPicks();
   if (!picks.length) {
@@ -202,6 +248,46 @@ async function pickAndAttach() {
     matchOnDetail: true,
   });
   if (chosen) attachProcess(chosen.pick);
+}
+
+async function copyCudaVisibleDevices(ids: number[]) {
+  const value = ids.length ? ids.join(",") : "";
+  await vscode.env.clipboard.writeText(value);
+  void vscode.window.setStatusBarMessage(
+    value
+      ? `Copied CUDA_VISIBLE_DEVICES=${value}`
+      : "Copied empty CUDA_VISIBLE_DEVICES (no GPUs selected)",
+    3000,
+  );
+}
+
+async function configureStatusBar() {
+  type Key = "showCpu" | "showMem" | "showDisk" | "showGpu" | "showNetwork" | "showProcess";
+  const opts: { key: Key; label: string }[] = [
+    { key: "showCpu", label: "CPU" },
+    { key: "showMem", label: "Memory" },
+    { key: "showDisk", label: "Disk I/O" },
+    { key: "showGpu", label: "GPU" },
+    { key: "showNetwork", label: "Network" },
+    { key: "showProcess", label: "Process attach" },
+  ];
+  const picked = await vscode.window.showQuickPick(
+    opts.map((o) => ({
+      label: o.label,
+      picked: cfg().get<boolean>(o.key, true),
+      key: o.key,
+    })),
+    {
+      canPickMany: true,
+      placeHolder: "Status bar metrics to show",
+    },
+  );
+  if (!picked) return;
+  const on = new Set(picked.map((p) => p.key));
+  for (const o of opts) {
+    await cfg().update(o.key, on.has(o.key), vscode.ConfigurationTarget.Global);
+  }
+  void tick();
 }
 
 async function tryAutoAttach(session: vscode.DebugSession) {
@@ -236,6 +322,8 @@ export function activate(context: vscode.ExtensionContext) {
     {
       onAttach: () => void pickAndAttach(),
       onDetach: () => detachProcess(true),
+      onAttachPid: (pid) => void attachByPid(pid),
+      onCopyCuda: (ids) => void copyCudaVisibleDevices(ids),
     },
   );
   panel.setCpuMode(cpuMode());
@@ -271,6 +359,13 @@ export function activate(context: vscode.ExtensionContext) {
     }),
     vscode.commands.registerCommand("systemMonitor.attachProcess", () => pickAndAttach()),
     vscode.commands.registerCommand("systemMonitor.detachProcess", () => detachProcess(true)),
+    vscode.commands.registerCommand("systemMonitor.configureStatusBar", () =>
+      configureStatusBar(),
+    ),
+    vscode.commands.registerCommand("systemMonitor.copyCudaDevices", async () => {
+      const snap = await collect(attached?.pid);
+      await copyCudaVisibleDevices(snap.gpus.map((_, i) => i));
+    }),
     vscode.debug.onDidStartDebugSession((session) => void tryAutoAttach(session)),
     vscode.debug.onDidTerminateDebugSession(() => {
       if (cfg().get<boolean>("detachOnDebugEnd", false) && attached) {
