@@ -7,6 +7,8 @@ tsconfig.json
 *.vsix
 **/.DS_Store
 PUBLISH.md
+probe-gpu.js
+marketing/**
 node_modules/@types/**
 node_modules/typescript/**
 node_modules/@vscode/**

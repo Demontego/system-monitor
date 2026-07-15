@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.1
+
+- Fix WSL GPU detection: use `nvidia-smi` directly (systeminformation returns empty controllers in WSL2)
+
 ## 1.2.0
 
 - Attach process: track CPU / RAM (+ disk I/O on Linux) for a chosen PID

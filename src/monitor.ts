@@ -28,14 +28,14 @@ function toKBs(bytesPerSec: number): number {
 }
 
 export async function collect(attachedPid?: number | null): Promise<Snapshot> {
-  const [load, mem, graphics, netStats, osInfo, disks, process] = await Promise.all([
+  const [load, mem, netStats, osInfo, disks, process, gpus] = await Promise.all([
     si.currentLoad(),
     si.mem(),
-    si.graphics(),
     si.networkStats(),
     si.osInfo(),
     collectDisks(),
     attachedPid ? sampleProcess(attachedPid) : Promise.resolve(null),
+    collectGpus(),
   ]);
 
   const cpuCores = (load.cpus ?? []).map((c) => Math.round(c.load));
@@ -43,11 +43,12 @@ export async function collect(attachedPid?: number | null): Promise<Snapshot> {
   const memTotalGb = mem.total / 1024 ** 3;
   const memPct = mem.total > 0 ? ((mem.active || mem.used) / mem.total) * 100 : 0;
 
-  const gpus = collectGpus(graphics);
   const withUtil = gpus.filter((g) => g.util != null);
   const withTemp = gpus.filter((g) => g.temp != null);
   const gpuPct =
-    withUtil.length > 0 ? Math.max(...withUtil.map((g) => g.util as number)) : gpus[0]?.util ?? null;
+    withUtil.length > 0
+      ? Math.max(...withUtil.map((g) => g.util as number))
+      : gpus[0]?.util ?? null;
   const gpuTemp =
     withTemp.length > 0 ? Math.max(...withTemp.map((g) => g.temp as number)) : null;
   const top =

@@ -63,7 +63,7 @@ function rateFromDelta(
   };
 }
 
-export function collectGpus(graphics: { controllers?: Ctrl[] }): GpuInfo[] {
+export function collectGpusFromControllers(graphics: { controllers?: Ctrl[] }): GpuInfo[] {
   const list = graphics.controllers ?? [];
   return list.map((c, i) => {
     const name = shortName(c.model || c.vendor || `GPU ${i}`);
@@ -78,6 +78,94 @@ export function collectGpus(graphics: { controllers?: Ctrl[] }): GpuInfo[] {
     return { id: `gpu-${i}`, name, util, temp };
   });
 }
+
+/** systeminformation often returns empty controllers in WSL2; nvidia-smi still works */
+async function gpusFromNvidiaSmi(): Promise<GpuInfo[]> {
+  const bins =
+    os.platform() === "win32"
+      ? [
+          "nvidia-smi.exe",
+          `${process.env.SystemRoot || "C:\\Windows"}\\System32\\nvidia-smi.exe`,
+        ]
+      : ["nvidia-smi", "/usr/lib/wsl/lib/nvidia-smi", "/usr/bin/nvidia-smi"];
+
+  const args = [
+    "--query-gpu=name,utilization.gpu,temperature.gpu",
+    "--format=csv,noheader,nounits",
+  ];
+
+  const env = {
+    ...process.env,
+    PATH:
+      os.platform() === "win32"
+        ? process.env.PATH || ""
+        : `${process.env.PATH || ""}:/usr/lib/wsl/lib:/usr/bin`,
+  };
+
+  for (const bin of bins) {
+    try {
+      const { stdout } = await execFileAsync(bin, args, {
+        timeout: 4000,
+        windowsHide: true,
+        env,
+        maxBuffer: 256 * 1024,
+      });
+      const lines = stdout
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      if (!lines.length) continue;
+      const gpus: GpuInfo[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        const parts = lines[i].split(",").map((p) => p.trim());
+        if (parts.length < 1) continue;
+        const name = shortName(parts[0] || `GPU ${i}`);
+        const utilRaw = parts[1];
+        const tempRaw = parts[2];
+        const util =
+          utilRaw && utilRaw !== "[N/A]" && utilRaw !== "N/A"
+            ? Math.round(parseFloat(utilRaw))
+            : null;
+        const temp =
+          tempRaw && tempRaw !== "[N/A]" && tempRaw !== "N/A"
+            ? Math.round(parseFloat(tempRaw))
+            : null;
+        gpus.push({
+          id: `gpu-${i}`,
+          name,
+          util: util != null && !Number.isNaN(util) ? util : null,
+          temp: temp != null && !Number.isNaN(temp) ? temp : null,
+        });
+      }
+      if (gpus.length) return gpus;
+    } catch {
+      /* try next binary */
+    }
+  }
+  return [];
+}
+
+export async function collectGpus(
+  graphics?: { controllers?: Ctrl[] },
+): Promise<GpuInfo[]> {
+  // Prefer nvidia-smi first on Linux/WSL: si.graphics() is often empty there
+  if (os.platform() === "linux") {
+    const smi = await gpusFromNvidiaSmi();
+    if (smi.length) return smi;
+  }
+
+  const g = graphics ?? (await si.graphics().catch(() => ({ controllers: [] as Ctrl[] })));
+  const fromSi = collectGpusFromControllers(g);
+  const hasMetrics = fromSi.some((x) => x.util != null || x.temp != null);
+  if (fromSi.length && hasMetrics) return fromSi;
+
+  const smi = await gpusFromNvidiaSmi();
+  if (smi.length) return smi;
+  return fromSi;
+}
+
+/** @deprecated use collectGpus() */
+export const collectGpusSync = collectGpusFromControllers;
 
 async function disksWindows(): Promise<DiskInfo[]> {
   const ps = [

@@ -58,8 +58,8 @@ Command Palette → **Extensions: Install from VSIX…**
 - **Windows disks:** per-disk R/W via PhysicalDisk counters
 - **Linux disks:** per-disk from `/sys/block/*/stat`
 - **macOS disks:** disk list + aggregate I/O (cheap per-disk rates limited)
-- **WSL:** shows guest (WSL) resources, not the Windows host
-- **GPU %:** depends on driver/OS exposing utilization
+- **WSL:** guest resources; GPU via `nvidia-smi` (WSL path `/usr/lib/wsl/lib`)
+- **GPU % / temp:** NVIDIA via nvidia-smi; other vendors depend on OS APIs
 
 ## Develop
 
