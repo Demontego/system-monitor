@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.2
+
+- Chart sections framed; Network panel above Process
+
 ## 1.4.1
 
 - Distinct chart colors per metric (CPU / RAM / disk / GPU / net / process)

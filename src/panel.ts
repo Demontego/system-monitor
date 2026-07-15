@@ -163,10 +163,10 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   }
   .gpu-block {
     margin: 0;
-    border: none;
-    border-radius: 0;
-    padding: 4px 0 8px;
-    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--c-gpu-u) 28%, rgba(120,140,150,.18));
+    border-radius: 6px;
+    padding: 6px 8px 8px;
+    background: color-mix(in srgb, #061014 40%, transparent);
     min-width: 0;
   }
   .gpu-head {
@@ -283,15 +283,21 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     word-break: break-word;
   }
   .card {
-    background: var(--surface);
-    border: none;
-    border-radius: 0;
-    padding: 4px 2px 14px;
-    margin-bottom: 8px;
+    background: color-mix(in srgb, #0a1216 55%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tone, var(--accent)) 35%, rgba(120,140,150,.22));
+    border-radius: 8px;
+    padding: 10px 10px 10px 12px;
+    margin-bottom: 12px;
     position: relative;
-    overflow: visible;
+    overflow: hidden;
+    box-shadow: inset 3px 0 0 0 var(--tone, var(--accent));
   }
-  .card::before { display: none; }
+  .card.cpu { --tone: var(--c-cpu); }
+  .card.mem { --tone: var(--c-mem-used); }
+  .card.disk { --tone: var(--c-disk-r); }
+  .card.gpu { --tone: var(--c-gpu-u); }
+  .card.net { --tone: var(--c-net-dn); }
+  .card.proc { --tone: var(--c-proc); }
   .card.proc.hidden { display: none; }
   .card.collapsed .card-body { display: none; }
   .card .chev {
@@ -299,8 +305,8 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     width: 1em;
     margin-right: 4px;
     transition: transform .12s ease;
-    opacity: 0.45;
-    color: var(--accent);
+    opacity: 0.55;
+    color: var(--tone, var(--accent));
   }
   .card.collapsed .chev { transform: rotate(-90deg); }
   .card .head {
@@ -368,9 +374,11 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   }
   .plot {
     position: relative;
-    border-radius: 0;
-    background: transparent;
-    overflow: visible;
+    border-radius: 4px;
+    background: color-mix(in srgb, #000 25%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tone, var(--accent)) 12%, transparent);
+    overflow: hidden;
+    padding: 2px 0;
   }
   canvas.main {
     width: 100%;
@@ -513,6 +521,20 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     </div>
   </section>
 
+  <section class="card net" data-panel="net">
+    <div class="head">
+      <span class="label"><span class="chev">▾</span>Network</span>
+      <span class="val" id="netVal">—</span>
+    </div>
+    <div class="card-body">
+      <div class="plot"><canvas class="main" id="net"></canvas></div>
+      <div class="legend">
+        <span><i style="background:var(--c-net-dn)"></i>down</span>
+        <span><i style="background:var(--c-net-up)"></i>up</span>
+      </div>
+    </div>
+  </section>
+
   <section class="card proc" id="procCard" data-panel="proc">
     <div class="head">
       <span class="label"><span class="chev">▾</span>Process</span>
@@ -532,20 +554,6 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
       <div class="legend">
         <span><i style="background:var(--c-proc)"></i>cpu %</span>
         <span><i style="background:var(--c-proc-mem)"></i>mem (scaled)</span>
-      </div>
-    </div>
-  </section>
-
-  <section class="card net" data-panel="net">
-    <div class="head">
-      <span class="label"><span class="chev">▾</span>Network</span>
-      <span class="val" id="netVal">—</span>
-    </div>
-    <div class="card-body">
-      <div class="plot"><canvas class="main" id="net"></canvas></div>
-      <div class="legend">
-        <span><i style="background:var(--c-net-dn)"></i>down</span>
-        <span><i style="background:var(--c-net-up)"></i>up</span>
       </div>
     </div>
   </section>
