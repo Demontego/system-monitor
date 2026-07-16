@@ -1312,7 +1312,7 @@ function paint(msg) {
         if (g.memUsedMb != null && g.memTotalMb)
           bits.push(fmtVram(g.memUsedMb) + '/' + fmtVram(g.memTotalMb));
         return bits.join(' · ');
-      }).join('\n');
+      }).join('\\n');
     renderCuda(gpus);
     ensureGpuCards(gpus.length);
     gpus.forEach((g, i) => {

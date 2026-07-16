@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.3
+
+- Fix Windows/panel blank UI: escaped `\\n` in webview script (broken by template literal)
+
 ## 1.5.2
 
 - GPU cards: stacked title/metrics (no overlap in 2-col); shorter labels + tooltips
