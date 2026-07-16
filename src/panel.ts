@@ -171,16 +171,26 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   }
   .gpu-head {
     display: flex;
-    justify-content: space-between;
-    gap: 6px;
+    flex-direction: column;
+    gap: 2px;
     padding: 0 2px 6px;
     font-size: 10px;
+    min-width: 0;
   }
-  .gpu-head b {
+  .gpu-head .gpu-title {
+    font-weight: 600;
+    color: #f0f4f5;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .gpu-head .gpu-live {
     font-family: var(--mono);
     font-variant-numeric: tabular-nums;
-    text-align: right;
-    white-space: nowrap;
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.35;
+    word-break: break-word;
   }
   .gpu-block canvas.main {
     height: 72px;
@@ -367,6 +377,16 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     font-size: 11px;
     font-weight: 500;
     color: var(--muted);
+    max-width: min(58%, 220px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .card.gpu .val {
+    max-width: 100%;
+    white-space: normal;
+    text-align: right;
+    line-height: 1.35;
   }
   .seg {
     display: inline-flex;
@@ -926,11 +946,13 @@ function renderCuda(gpus) {
     [...row.querySelectorAll('input[type=checkbox]:checked')].map(c => c.value)
   );
   cudaSig = sig;
-  const boxes = gpus.map((g, i) => {
-    const checked = prev.size ? prev.has(String(i)) : true;
-    return '<label><input type="checkbox" value="' + i + '"' +
-      (checked ? ' checked' : '') + '/> ' + i + ' · ' + g.name + '</label>';
-  }).join('');
+    const boxes = gpus.map((g, i) => {
+      const checked = prev.size ? prev.has(String(i)) : true;
+      const short = (g.name || '').replace(/^NVIDIA\s+/i, '');
+      return '<label title="' + (g.name || '') + '"><input type="checkbox" value="' + i + '"' +
+        (checked ? ' checked' : '') + '/> ' + i +
+        (gpus.length <= 4 ? ' · ' + short.slice(0, 14) : '') + '</label>';
+    }).join('');
   row.innerHTML = boxes +
     '<button type="button" class="btn-mini" id="cudaCopy">Copy CUDA_VISIBLE_DEVICES</button>';
   const copyBtn = document.getElementById('cudaCopy');
@@ -977,8 +999,10 @@ function ensureGpuCards(n) {
     const el = document.createElement('div');
     el.className = 'gpu-block';
     el.innerHTML =
-      '<div class="gpu-head"><span id="gpuName' + i + '">GPU ' + i + '</span>' +
-      '<b id="gpuLive' + i + '">—</b></div>' +
+      '<div class="gpu-head">' +
+      '<div class="gpu-title" id="gpuName' + i + '">GPU ' + i + '</div>' +
+      '<div class="gpu-live" id="gpuLive' + i + '">—</div>' +
+      '</div>' +
       '<div class="plot"><canvas class="main" id="gpuC' + i + '"></canvas></div>' +
       '<div class="legend">' +
       '<span><i style="background:var(--c-gpu-u)"></i>util</span>' +
@@ -1274,34 +1298,41 @@ function paint(msg) {
       .filter(g => g.memUsedMb != null && g.memTotalMb)
       .map(g => fmtVram(g.memUsedMb) + '/' + fmtVram(g.memTotalMb));
     document.getElementById('gpuVal').textContent =
-      gpus.length + ' GPU' +
-      (live.gpuPct != null ? ' · ' + live.gpuPct + '%' : '') +
-      (live.gpuTemp != null ? ' · ' + live.gpuTemp + '°' : '') +
-      (live.gpuPowerW != null ? ' · ' + Math.round(live.gpuPowerW) + 'W' : '') +
-      (vramBits.length ? ' · ' + vramBits[0] + (vramBits.length > 1 ? '…' : '') : '');
+      gpus.length + '×' +
+      (live.gpuPct != null ? ' ' + live.gpuPct + '%' : '') +
+      (live.gpuTemp != null ? ' ' + live.gpuTemp + '°' : '') +
+      (live.gpuPowerW != null ? ' ' + Math.round(live.gpuPowerW) + 'W' : '') +
+      (vramBits.length ? ' ' + vramBits[0] : '');
+    document.getElementById('gpuVal').title =
+      gpus.map((g, i) => {
+        const bits = ['GPU' + i, g.name];
+        if (g.util != null) bits.push(g.util + '%');
+        if (g.temp != null) bits.push(g.temp + '°');
+        if (g.powerW != null) bits.push(Math.round(g.powerW) + 'W');
+        if (g.memUsedMb != null && g.memTotalMb)
+          bits.push(fmtVram(g.memUsedMb) + '/' + fmtVram(g.memTotalMb));
+        return bits.join(' · ');
+      }).join('\n');
     renderCuda(gpus);
     ensureGpuCards(gpus.length);
     gpus.forEach((g, i) => {
       const nameEl = document.getElementById('gpuName' + i);
       const liveEl = document.getElementById('gpuLive' + i);
       if (nameEl) {
-        const cores = g.cores != null ? ' · ' + g.cores + ' cores' : '';
-        const metal = g.metalVersion ? ' · Metal ' + g.metalVersion : '';
-        nameEl.textContent = 'GPU ' + i + ' · ' + g.name + cores + metal;
+        const short = (g.name || '').replace(/^NVIDIA\s+/i, '');
+        const cores = g.cores != null ? ' · ' + g.cores + 'c' : '';
+        nameEl.textContent = i + ' · ' + short + cores;
+        nameEl.title = g.name + (g.metalVersion ? ' · Metal ' + g.metalVersion : '');
       }
       if (liveEl) {
-        const u = g.util == null ? (g.cores != null ? g.cores + 'c' : 'n/a') : g.util + '%';
-        const t = g.temp == null ? '' : ' · ' + g.temp + '°';
-        const m =
-          g.memUsedMb != null && g.memTotalMb
-            ? ' · ' + fmtVram(g.memUsedMb) + '/' + fmtVram(g.memTotalMb)
-            : '';
-        const pw =
-          g.powerW != null
-            ? ' · ' + Math.round(g.powerW) + 'W' +
-              (g.powerLimitW != null ? '/' + Math.round(g.powerLimitW) : '')
-            : '';
-        liveEl.textContent = u + t + m + pw;
+        const parts = [];
+        if (g.util != null) parts.push(g.util + '%');
+        else if (g.cores != null) parts.push(g.cores + ' cores');
+        if (g.temp != null) parts.push(g.temp + '°');
+        if (g.powerW != null) parts.push(Math.round(g.powerW) + 'W');
+        if (g.memUsedMb != null && g.memTotalMb)
+          parts.push(fmtVram(g.memUsedMb) + '/' + fmtVram(g.memTotalMb));
+        liveEl.textContent = parts.length ? parts.join(' · ') : '—';
       }
     });
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.2
+
+- GPU cards: stacked title/metrics (no overlap in 2-col); shorter labels + tooltips
+
 ## 1.5.1
 
 - Windows GPU process list: basename only, hide desktop noise / N/A / &lt;64 MiB VRAM
