@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.5.0
+
+- GPU processes: per-GPU index, username, docker/k8s container tag (shared SSH boxes)
+
 ## 1.4.2
 
 - Chart sections framed; Network panel above Process

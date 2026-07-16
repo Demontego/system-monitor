@@ -2,7 +2,7 @@
   "name": "system-monitor",
   "displayName": "System Monitor — CPU RAM GPU Disk",
   "description": "Live CPU (per-core), RAM, multi-GPU, multi-disk and network charts in the sidebar — Task Manager style. Windows, macOS, Linux, WSL.",
-  "version": "1.4.2",
+  "version": "1.5.0",
   "publisher": "demontego",
   "license": "MIT",
   "icon": "media/icon.png",

@@ -216,6 +216,23 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
   .proc-row {
     grid-template-columns: 1fr auto auto;
   }
+  .proc-row.gpu-row {
+    grid-template-columns: auto 1fr auto auto;
+    gap: 6px;
+  }
+  .gpu-tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--c-gpu-u);
+    white-space: nowrap;
+  }
+  .user-tag {
+    color: var(--accent3);
+  }
+  .ctr-tag {
+    color: var(--c-disk-r);
+    font-size: 9px;
+  }
   .bar-track {
     height: 4px;
     border-radius: 2px;
@@ -518,6 +535,8 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     <div class="card-body">
       <div class="cuda-row" id="cudaRow"></div>
       <div id="gpuList"></div>
+      <div class="dev-meta" id="gpuProcLabel" style="margin-top:10px">GPU processes (user · who occupies VRAM)</div>
+      <div class="proc-list" id="gpuProcList"></div>
     </div>
   </section>
 
@@ -547,8 +566,6 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     <div class="card-body">
       <div class="dev-meta">Top by CPU — click Attach</div>
       <div class="proc-list" id="topProcList"></div>
-      <div class="dev-meta" id="gpuProcLabel" style="display:none">NVIDIA GPU processes</div>
-      <div class="proc-list" id="gpuProcList"></div>
       <div class="dev-meta" id="procMeta">Not attached — track CPU / RAM of a debuggee or any PID</div>
       <div class="plot" id="procPlot"><canvas class="main" id="proc"></canvas></div>
       <div class="legend">
@@ -856,15 +873,31 @@ function renderProcTable(elId, list, kind) {
   const el = document.getElementById(elId);
   if (!el) return;
   if (!(list || []).length) {
-    el.innerHTML = '';
+    el.innerHTML = kind === 'gpu'
+      ? '<div class="dev-meta">No compute apps on GPU right now</div>'
+      : '';
     return;
   }
-  el.innerHTML = list.slice(0, 10).map(p => {
-    const extra = kind === 'gpu'
-      ? (p.gpuMemMb != null ? p.gpuMemMb + 'M vram' : 'gpu')
-      : (p.cpu + '% · ' + Math.round(p.memMb) + 'M');
+  el.innerHTML = list.slice(0, 24).map(p => {
+    if (kind === 'gpu') {
+      const g =
+        p.gpuIndex != null ? 'GPU' + p.gpuIndex : 'GPU?';
+      const who = p.user || '?';
+      const ctr = p.container
+        ? ' <span class="ctr-tag">' + p.container + '</span>'
+        : '';
+      const mem = p.gpuMemMb != null ? p.gpuMemMb + 'M' : '—';
+      const title = (p.gpuName || '') + ' · ' + p.name + ' · #' + p.pid;
+      return '<div class="proc-row gpu-row" title="' + title + '">' +
+        '<span class="gpu-tag">' + g + '</span>' +
+        '<div><span class="user-tag">' + who + '</span> · ' + p.name +
+        ' <span style="color:var(--muted)">#' + p.pid + '</span>' + ctr + '</div>' +
+        '<div>' + mem + '</div>' +
+        '<button type="button" class="btn-mini" data-pid="' + p.pid + '">Attach</button></div>';
+    }
     return '<div class="proc-row"><div title="' + p.name + '">' + p.name +
-      ' <span style="color:var(--muted)">#' + p.pid + '</span></div><div>' + extra +
+      ' <span style="color:var(--muted)">#' + p.pid + '</span></div><div>' +
+      p.cpu + '% · ' + Math.round(p.memMb) + 'M' +
       '</div><button type="button" class="btn-mini" data-pid="' + p.pid + '">Attach</button></div>';
   }).join('');
   el.querySelectorAll('button[data-pid]').forEach(btn => {
@@ -1264,10 +1297,7 @@ function paint(msg) {
     });
 
     renderProcTable('topProcList', live.topProcs || [], 'cpu');
-    const gpuProcs = live.gpuProcs || [];
-    const gpl = document.getElementById('gpuProcLabel');
-    if (gpl) gpl.style.display = gpuProcs.length ? '' : 'none';
-    renderProcTable('gpuProcList', gpuProcs, 'gpu');
+    renderProcTable('gpuProcList', live.gpuProcs || [], 'gpu');
 
     document.getElementById('netVal').textContent =
       '↓ ' + fmtRate(live.netDownKBs) + '  ↑ ' + fmtRate(live.netUpKBs);

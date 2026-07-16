@@ -13,6 +13,11 @@ export type ProcessPick = {
   cpu: number;
   memMb: number;
   gpuMemMb?: number | null;
+  gpuIndex?: number | null;
+  gpuName?: string | null;
+  user?: string | null;
+  /** docker / k8s / container short id, if any */
+  container?: string | null;
 };
 
 export type ProcessStats = {
@@ -98,7 +103,7 @@ async function sampleLinux(pid: number): Promise<ProcessStats | null> {
       fs.readFile(`/proc/${pid}/comm`, "utf8").catch(() => String(pid)),
     ]);
     const parts = stat.slice(stat.indexOf(")") + 2).trim().split(/\s+/);
-    // utime=11 stime=12 (0-based after comm) ù after ") " fields: state ppid ... utime stime at index 11,12 from post-comm? 
+    // utime=11 stime=12 (0-based after comm) ? after ") " fields: state ppid ... utime stime at index 11,12 from post-comm? 
     // /proc/pid/stat: after comm) field 12=utime, 13=stime (1-based field numbers in man = index 11,12 in 0-based after split of post-paren)
     const utime = parseInt(parts[11] || "0", 10) || 0;
     const stime = parseInt(parts[12] || "0", 10) || 0;
@@ -205,54 +210,185 @@ export async function sampleProcess(pid: number): Promise<ProcessStats | null> {
   return sampleLinux(pid).catch(() => null);
 }
 
-/** NVIDIA processes currently holding VRAM */
-export async function listGpuComputeApps(): Promise<ProcessPick[]> {
-  const bins =
-    os.platform() === "win32"
-      ? [
-          "nvidia-smi.exe",
-          `${process.env.SystemRoot || "C:\\Windows"}\\System32\\nvidia-smi.exe`,
-        ]
-      : ["nvidia-smi", "/usr/lib/wsl/lib/nvidia-smi", "/usr/bin/nvidia-smi"];
-  const args = [
-    "--query-compute-apps=pid,process_name,used_gpu_memory",
-    "--format=csv,noheader,nounits",
-  ];
-  const env = {
+function nvidiaBins(): string[] {
+  return os.platform() === "win32"
+    ? [
+        "nvidia-smi.exe",
+        `${process.env.SystemRoot || "C:\\Windows"}\\System32\\nvidia-smi.exe`,
+      ]
+    : ["nvidia-smi", "/usr/lib/wsl/lib/nvidia-smi", "/usr/bin/nvidia-smi"];
+}
+
+function nvidiaEnv(): NodeJS.ProcessEnv {
+  return {
     ...process.env,
     PATH:
       os.platform() === "win32"
         ? process.env.PATH || ""
         : `${process.env.PATH || ""}:/usr/lib/wsl/lib:/usr/bin`,
   };
-  for (const bin of bins) {
+}
+
+async function nvidiaQuery(args: string[]): Promise<string | null> {
+  for (const bin of nvidiaBins()) {
     try {
       const { stdout } = await execFileAsync(bin, args, {
-        timeout: 3000,
+        timeout: 4000,
         windowsHide: true,
-        env,
+        env: nvidiaEnv(),
+        maxBuffer: 512 * 1024,
       });
-      const out: ProcessPick[] = [];
-      for (const line of stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
-        const parts = line.split(",").map((p) => p.trim());
-        const pid = parseInt(parts[0] || "0", 10);
-        if (!pid) continue;
-        const name = parts[1] || `pid-${pid}`;
-        const gpuMem = parseFloat(parts[2] || "");
-        out.push({
-          pid,
-          name,
-          cpu: 0,
-          memMb: 0,
-          gpuMemMb: Number.isNaN(gpuMem) ? null : Math.round(gpuMem),
-        });
-      }
-      if (out.length) return out;
+      if (stdout.trim()) return stdout;
     } catch {
       /* next */
     }
   }
-  return [];
+  return null;
+}
+
+async function mapGpuUuidToIndex(): Promise<Map<string, { index: number; name: string }>> {
+  const out = new Map<string, { index: number; name: string }>();
+  const raw = await nvidiaQuery([
+    "--query-gpu=index,uuid,name",
+    "--format=csv,noheader,nounits",
+  ]);
+  if (!raw) return out;
+  for (const line of raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+    const parts = line.split(",").map((p) => p.trim());
+    const index = parseInt(parts[0] || "", 10);
+    const uuid = parts[1] || "";
+    const name = parts[2] || `GPU ${index}`;
+    if (!uuid || Number.isNaN(index)) continue;
+    out.set(uuid, { index, name });
+  }
+  return out;
+}
+
+async function usersForPids(pids: number[]): Promise<Map<number, string>> {
+  const map = new Map<number, string>();
+  if (!pids.length) return map;
+  if (os.platform() === "win32") {
+    try {
+      const list = pids.join(",");
+      const ps = [
+        "-NoProfile",
+        "-Command",
+        `$ids=@(${list}); foreach($id in $ids){ try { $o=(Get-CimInstance Win32_Process -Filter \"ProcessId=$id\").GetOwner(); if($o){ \"$id,$($o.User)\" } } catch {} }`,
+      ];
+      const { stdout } = await execFileAsync("powershell.exe", ps, {
+        timeout: 4000,
+        windowsHide: true,
+      });
+      for (const line of stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+        const [id, user] = line.split(",");
+        const pid = parseInt(id || "", 10);
+        if (pid && user) map.set(pid, user.trim());
+      }
+    } catch {
+      /* ignore */
+    }
+    return map;
+  }
+  // Linux / macOS / WSL: one ps call
+  try {
+    const { stdout } = await execFileAsync(
+      "ps",
+      ["-o", "pid=,user=", "-p", pids.join(",")],
+      { timeout: 3000 },
+    );
+    for (const line of stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+      const m = line.match(/^(\d+)\s+(\S+)/);
+      if (m) map.set(parseInt(m[1], 10), m[2]);
+    }
+  } catch {
+    /* ignore */
+  }
+  return map;
+}
+
+async function containerForPid(pid: number): Promise<string | null> {
+  if (os.platform() !== "linux") return null;
+  try {
+    const raw = await fs.readFile(`/proc/${pid}/cgroup`, "utf8");
+    // docker-<id>.scope or /docker/<id> or containerd
+    const docker =
+      raw.match(/docker[-/]([0-9a-f]{12,})/i) ||
+      raw.match(/docker-([0-9a-f]{12,})\.scope/i);
+    if (docker) return `docker:${docker[1].slice(0, 12)}`;
+    if (/kubepods|cri-containerd|containerd/i.test(raw)) {
+      const id = raw.match(/([0-9a-f]{32,})/i);
+      return id ? `k8s:${id[1].slice(0, 12)}` : "k8s";
+    }
+    // different mount ns ? likely container
+    try {
+      const [a, b] = await Promise.all([
+        fs.readlink(`/proc/${pid}/ns/mnt`),
+        fs.readlink("/proc/1/ns/mnt"),
+      ]);
+      if (a && b && a !== b) return "container";
+    } catch {
+      /* no ns access */
+    }
+  } catch {
+    /* gone */
+  }
+  return null;
+}
+
+/** NVIDIA processes currently holding VRAM ? per GPU + user + docker/k8s */
+export async function listGpuComputeApps(): Promise<ProcessPick[]> {
+  const [appsRaw, uuidMap] = await Promise.all([
+    nvidiaQuery([
+      "--query-compute-apps=gpu_uuid,pid,process_name,used_gpu_memory",
+      "--format=csv,noheader,nounits",
+    ]),
+    mapGpuUuidToIndex(),
+  ]);
+  if (!appsRaw) return [];
+
+  const rows: ProcessPick[] = [];
+  for (const line of appsRaw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
+    // uuid may contain commas? usually not; process_name rarely has commas
+    const parts = line.split(",").map((p) => p.trim());
+    if (parts.length < 3) continue;
+    const uuid = parts[0] || "";
+    const pid = parseInt(parts[1] || "0", 10);
+    if (!pid) continue;
+    const name = parts[2] || `pid-${pid}`;
+    const gpuMem = parseFloat(parts[3] || "");
+    const g = uuidMap.get(uuid);
+    rows.push({
+      pid,
+      name,
+      cpu: 0,
+      memMb: 0,
+      gpuMemMb: Number.isNaN(gpuMem) ? null : Math.round(gpuMem),
+      gpuIndex: g?.index ?? null,
+      gpuName: g?.name ?? null,
+      user: null,
+      container: null,
+    });
+  }
+  if (!rows.length) return [];
+
+  const pids = [...new Set(rows.map((r) => r.pid))];
+  const [users, containers] = await Promise.all([
+    usersForPids(pids),
+    Promise.all(pids.map(async (pid) => [pid, await containerForPid(pid)] as const)).then(
+      (pairs) => new Map(pairs),
+    ),
+  ]);
+
+  for (const r of rows) {
+    r.user = users.get(r.pid) ?? null;
+    r.container = containers.get(r.pid) ?? null;
+  }
+
+  return rows.sort(
+    (a, b) =>
+      (a.gpuIndex ?? 99) - (b.gpuIndex ?? 99) ||
+      (b.gpuMemMb ?? 0) - (a.gpuMemMb ?? 0),
+  );
 }
 
 export function matchDebugProcess(
