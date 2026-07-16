@@ -270,26 +270,27 @@ async function usersForPids(pids: number[]): Promise<Map<number, string>> {
   if (os.platform() === "win32") {
     try {
       const list = pids.join(",");
+      // GetOwner via Invoke-CimMethod ? direct .GetOwner() often fails silently
       const ps = [
         "-NoProfile",
         "-Command",
-        `$ids=@(${list}); foreach($id in $ids){ try { $o=(Get-CimInstance Win32_Process -Filter \"ProcessId=$id\").GetOwner(); if($o){ \"$id,$($o.User)\" } } catch {} }`,
+        `$ids=@(${list}); foreach($id in $ids){ $p=Get-CimInstance Win32_Process -Filter \"ProcessId=$id\" -EA SilentlyContinue; if(-not $p){continue}; try { $o=Invoke-CimMethod -InputObject $p -MethodName GetOwner -EA Stop; if($o.ReturnValue -eq 0 -and $o.User){ Write-Output \"$id,$($o.User)\" } else { Write-Output \"$id,?\" } } catch { Write-Output \"$id,?\" } }`,
       ];
       const { stdout } = await execFileAsync("powershell.exe", ps, {
-        timeout: 4000,
+        timeout: 6000,
         windowsHide: true,
+        maxBuffer: 512 * 1024,
       });
       for (const line of stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
         const [id, user] = line.split(",");
         const pid = parseInt(id || "", 10);
-        if (pid && user) map.set(pid, user.trim());
+        if (pid && user && user !== "?") map.set(pid, user.trim());
       }
     } catch {
       /* ignore */
     }
     return map;
   }
-  // Linux / macOS / WSL: one ps call
   try {
     const { stdout } = await execFileAsync(
       "ps",
@@ -306,11 +307,24 @@ async function usersForPids(pids: number[]): Promise<Map<number, string>> {
   return map;
 }
 
+function procBasename(raw: string): string {
+  const s = raw.trim();
+  if (!s || /^\[insufficient permissions\]$/i.test(s)) return "system";
+  const norm = s.replace(/\\/g, "/");
+  const base = norm.split("/").pop() || s;
+  return base.length > 40 ? `${base.slice(0, 39)}?` : base;
+}
+
+/** Desktop / compositor noise on Windows ? hide unless significant VRAM */
+const WIN_NOISE = /^(explorer|dwm|csrss|winlogon|sihost|shellexperiencehost|startmenuexperiencehost|searchhost|textinputhost|runtimebroker|applicationframehost|systemsettings|nvidia(overlay|share|webhelper)?|nvcontainer|nvdisplay|razer|steamwebhelper|telegram|yandex|msedge|chrome|firefox|discord|slack)\b/i;
+
+/** Min VRAM (MiB) to show as a "real" GPU consumer. Desktop noise often reports N/A. */
+const MIN_VRAM_MIB = 64;
+
 async function containerForPid(pid: number): Promise<string | null> {
   if (os.platform() !== "linux") return null;
   try {
     const raw = await fs.readFile(`/proc/${pid}/cgroup`, "utf8");
-    // docker-<id>.scope or /docker/<id> or containerd
     const docker =
       raw.match(/docker[-/]([0-9a-f]{12,})/i) ||
       raw.match(/docker-([0-9a-f]{12,})\.scope/i);
@@ -319,7 +333,6 @@ async function containerForPid(pid: number): Promise<string | null> {
       const id = raw.match(/([0-9a-f]{32,})/i);
       return id ? `k8s:${id[1].slice(0, 12)}` : "k8s";
     }
-    // different mount ns ? likely container
     try {
       const [a, b] = await Promise.all([
         fs.readlink(`/proc/${pid}/ns/mnt`),
@@ -348,21 +361,34 @@ export async function listGpuComputeApps(): Promise<ProcessPick[]> {
 
   const rows: ProcessPick[] = [];
   for (const line of appsRaw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)) {
-    // uuid may contain commas? usually not; process_name rarely has commas
     const parts = line.split(",").map((p) => p.trim());
     if (parts.length < 3) continue;
     const uuid = parts[0] || "";
     const pid = parseInt(parts[1] || "0", 10);
     if (!pid) continue;
-    const name = parts[2] || `pid-${pid}`;
-    const gpuMem = parseFloat(parts[3] || "");
+    const rawName = parts[2] || `pid-${pid}`;
+    if (/insufficient permissions/i.test(rawName)) continue;
+    const name = procBasename(rawName);
+    const memRaw = parts[3] || "";
+    const gpuMem =
+      !memRaw || /^\[?n\/?a\]?$/i.test(memRaw) ? NaN : parseFloat(memRaw);
+    const memMb = Number.isNaN(gpuMem) ? null : Math.round(gpuMem);
+    // Windows lists every D3D client with N/A mem ? keep only real VRAM holders
+    if (memMb == null || memMb < MIN_VRAM_MIB) {
+      if (os.platform() === "win32") continue;
+      // Linux: keep 0-mem compute apps (can be briefly idle CUDA) only if named
+      if (memMb == null) continue;
+    }
+    if (os.platform() === "win32" && WIN_NOISE.test(name) && (memMb ?? 0) < 512) {
+      continue;
+    }
     const g = uuidMap.get(uuid);
     rows.push({
       pid,
       name,
       cpu: 0,
       memMb: 0,
-      gpuMemMb: Number.isNaN(gpuMem) ? null : Math.round(gpuMem),
+      gpuMemMb: memMb,
       gpuIndex: g?.index ?? null,
       gpuName: g?.name ?? null,
       user: null,
@@ -371,20 +397,31 @@ export async function listGpuComputeApps(): Promise<ProcessPick[]> {
   }
   if (!rows.length) return [];
 
-  const pids = [...new Set(rows.map((r) => r.pid))];
+  // Dedup same pid on same GPU (keep max mem)
+  const seen = new Map<string, ProcessPick>();
+  for (const r of rows) {
+    const key = `${r.gpuIndex ?? "?"}:${r.pid}`;
+    const prev = seen.get(key);
+    if (!prev || (r.gpuMemMb ?? 0) > (prev.gpuMemMb ?? 0)) seen.set(key, r);
+  }
+  const deduped = [...seen.values()];
+
+  const pids = [...new Set(deduped.map((r) => r.pid))];
   const [users, containers] = await Promise.all([
     usersForPids(pids),
-    Promise.all(pids.map(async (pid) => [pid, await containerForPid(pid)] as const)).then(
-      (pairs) => new Map(pairs),
-    ),
+    os.platform() === "linux"
+      ? Promise.all(pids.map(async (pid) => [pid, await containerForPid(pid)] as const)).then(
+          (pairs) => new Map(pairs),
+        )
+      : Promise.resolve(new Map<number, string | null>()),
   ]);
 
-  for (const r of rows) {
+  for (const r of deduped) {
     r.user = users.get(r.pid) ?? null;
     r.container = containers.get(r.pid) ?? null;
   }
 
-  return rows.sort(
+  return deduped.sort(
     (a, b) =>
       (a.gpuIndex ?? 99) - (b.gpuIndex ?? 99) ||
       (b.gpuMemMb ?? 0) - (a.gpuMemMb ?? 0),

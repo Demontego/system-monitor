@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.5.1
+
+- Windows GPU process list: basename only, hide desktop noise / N/A / &lt;64 MiB VRAM
+- Fix Windows process owner lookup; Apple Silicon: show GPU cores (+ Metal) from SI
+
 ## 1.5.0
 
 - GPU processes: per-GPU index, username, docker/k8s container tag (shared SSH boxes)

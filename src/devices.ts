@@ -16,6 +16,9 @@ export type GpuInfo = {
   memTotalMb: number | null;
   powerW: number | null;
   powerLimitW: number | null;
+  /** Apple Silicon GPU cores (from systeminformation) */
+  cores: number | null;
+  metalVersion: string | null;
 };
 
 export type DiskInfo = {
@@ -46,6 +49,8 @@ type Ctrl = {
   memoryUsed?: number | null;
   memoryTotal?: number | null;
   vram?: number | null;
+  cores?: number | null;
+  metalVersion?: string | null;
 };
 type Block = {
   type?: string;
@@ -99,6 +104,11 @@ export function collectGpusFromControllers(graphics: { controllers?: Ctrl[] }): 
         : null;
     const memUsedMb = parseMemMb(c.memoryUsed);
     const memTotalMb = parseMemMb(c.memoryTotal ?? c.vram);
+    const cores =
+      typeof c.cores === "number" && !Number.isNaN(c.cores) && c.cores > 0
+        ? Math.round(c.cores)
+        : null;
+    const metalVersion = c.metalVersion ? String(c.metalVersion) : null;
     return {
       id: `gpu-${i}`,
       name,
@@ -108,6 +118,8 @@ export function collectGpusFromControllers(graphics: { controllers?: Ctrl[] }): 
       memTotalMb,
       powerW: null,
       powerLimitW: null,
+      cores,
+      metalVersion,
     };
   });
 }
@@ -167,6 +179,8 @@ async function gpusFromNvidiaSmi(): Promise<GpuInfo[]> {
           memTotalMb: num(parts[4]),
           powerW: num(parts[5]),
           powerLimitW: num(parts[6]),
+          cores: null,
+          metalVersion: null,
         });
       }
       if (gpus.length) return gpus;

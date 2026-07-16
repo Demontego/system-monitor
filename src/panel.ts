@@ -535,7 +535,7 @@ export class SysMonPanelProvider implements vscode.WebviewViewProvider {
     <div class="card-body">
       <div class="cuda-row" id="cudaRow"></div>
       <div id="gpuList"></div>
-      <div class="dev-meta" id="gpuProcLabel" style="margin-top:10px">GPU processes (user · who occupies VRAM)</div>
+      <div class="dev-meta" id="gpuProcLabel" style="margin-top:10px">GPU processes (≥64 MiB VRAM · user)</div>
       <div class="proc-list" id="gpuProcList"></div>
     </div>
   </section>
@@ -869,24 +869,29 @@ function renderMounts(mounts) {
   }).join('');
 }
 
+function fmtGpuMem(mb) {
+  if (mb == null) return '—';
+  if (mb >= 1024) return (mb / 1024).toFixed(1) + 'G';
+  return Math.round(mb) + 'M';
+}
+
 function renderProcTable(elId, list, kind) {
   const el = document.getElementById(elId);
   if (!el) return;
   if (!(list || []).length) {
     el.innerHTML = kind === 'gpu'
-      ? '<div class="dev-meta">No compute apps on GPU right now</div>'
+      ? '<div class="dev-meta">No heavy GPU consumers (≥64 MiB). Desktop apps hidden.</div>'
       : '';
     return;
   }
   el.innerHTML = list.slice(0, 24).map(p => {
     if (kind === 'gpu') {
-      const g =
-        p.gpuIndex != null ? 'GPU' + p.gpuIndex : 'GPU?';
-      const who = p.user || '?';
+      const g = p.gpuIndex != null ? 'GPU' + p.gpuIndex : 'GPU?';
+      const who = p.user || '—';
       const ctr = p.container
         ? ' <span class="ctr-tag">' + p.container + '</span>'
         : '';
-      const mem = p.gpuMemMb != null ? p.gpuMemMb + 'M' : '—';
+      const mem = fmtGpuMem(p.gpuMemMb);
       const title = (p.gpuName || '') + ' · ' + p.name + ' · #' + p.pid;
       return '<div class="proc-row gpu-row" title="' + title + '">' +
         '<span class="gpu-tag">' + g + '</span>' +
@@ -1279,9 +1284,13 @@ function paint(msg) {
     gpus.forEach((g, i) => {
       const nameEl = document.getElementById('gpuName' + i);
       const liveEl = document.getElementById('gpuLive' + i);
-      if (nameEl) nameEl.textContent = 'GPU ' + i + ' · ' + g.name;
+      if (nameEl) {
+        const cores = g.cores != null ? ' · ' + g.cores + ' cores' : '';
+        const metal = g.metalVersion ? ' · Metal ' + g.metalVersion : '';
+        nameEl.textContent = 'GPU ' + i + ' · ' + g.name + cores + metal;
+      }
       if (liveEl) {
-        const u = g.util == null ? 'n/a' : g.util + '%';
+        const u = g.util == null ? (g.cores != null ? g.cores + 'c' : 'n/a') : g.util + '%';
         const t = g.temp == null ? '' : ' · ' + g.temp + '°';
         const m =
           g.memUsedMb != null && g.memTotalMb

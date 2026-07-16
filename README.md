@@ -57,7 +57,9 @@ Command Palette → **Extensions: Install from VSIX…**
 - **Linux disks:** per-disk from `/sys/block/*/stat`
 - **macOS disks:** disk list + aggregate I/O (cheap per-disk rates limited)
 - **WSL:** guest resources; GPU via `nvidia-smi` (WSL path `/usr/lib/wsl/lib`)
-- **GPU % / temp:** NVIDIA via nvidia-smi; other vendors depend on OS APIs
+- **GPU % / temp / power:** NVIDIA via nvidia-smi; other vendors depend on OS APIs
+- **GPU processes:** show ≥64 MiB VRAM holders (+ user / docker on Linux); Windows desktop noise filtered
+- **Apple Silicon:** GPU core count (+ Metal) via systeminformation; live util % needs privileged tools (not included)
 
 ## Develop
 
